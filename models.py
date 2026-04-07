@@ -97,7 +97,7 @@ class Company(db.Model):
     website = db.Column(db.String(200))
     description = db.Column(db.Text)
     location = db.Column(db.String(150))
-    approval_status = db.Column(db.String(30), default=CompanyStatus.PENDING, nullable=False)
+    approval_status = db.Column(db.String(30), default=CompanyStatus.Pending_status, nullable=False)
     registered_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -214,7 +214,7 @@ class PlacementDrive(db.Model):
     salary_range  = db.Column(db.String(100))
     location = db.Column(db.String(150))
     application_deadline = db.Column(db.Date, nullable=False) 
-    status = db.Column(db.String(30), default=DriveStatus.PENDING, nullable=False)
+    status = db.Column(db.String(30), default=DriveStatus.Pending_status, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -288,7 +288,7 @@ class Application(db.Model):
     id  = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, db.ForeignKey('students.id'), nullable=False)
     drive_id = db.Column(db.Integer, db.ForeignKey('placement_drives.id'), nullable=False)
-    status  = db.Column(db.String(30), default=AppStatus.APPLIED, nullable=False)
+    status  = db.Column(db.String(30), default=AppStatus.Applied_app, nullable=False)
     applied_at  = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at  = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     notes   = db.Column(db.Text)  
@@ -340,7 +340,7 @@ class ExportJob(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, db.ForeignKey('students.id'), nullable=False)
     celery_task_id = db.Column(db.String(200))          # Celery task ID for internal tracking
-    status  = db.Column(db.String(30), default=ExportStatus.PENDING)
+    status  = db.Column(db.String(30), default=ExportStatus.Pending_status)
     file_path = db.Column(db.String(300))            # Absolute path to the CSV
     filename = db.Column(db.String(200))            # Just the filename for download URL
     requested_at = db.Column(db.DateTime, default=datetime.utcnow)
