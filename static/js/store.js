@@ -47,6 +47,13 @@ const Auth = {
 
 };
 
+const toastState = reactive({
+    toasts: []
+});
+
+let _toastId = 0;
+
+
 const Toast = {
     state: toastState,
 

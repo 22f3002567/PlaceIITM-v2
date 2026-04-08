@@ -1,4 +1,4 @@
-const { createApp, defineComponent, ref, reactive, computed, watch, onMounted } = Vue;
+const { createApp, defineComponent } = Vue;
 
 const App = defineComponent({
 
@@ -17,13 +17,13 @@ const App = defineComponent({
         <div>
             <div v-for="toast in toastState.toasts" :key="toast.id" class="toast">
                 <span>{{ toast.message }}</span>
-                <button @click="State.Toast.remove(toast.id)">X</button>
+                <button @click="Store.Toast.remove(toast.id)">X</button>
             </div>
         </div>
     </div>`,
 
     setup() {
-        const { totalState } = Store;
+        const { toastState } = Store;
         return { toastState, Store };
     }
 });
@@ -68,7 +68,7 @@ const StatusBadge = defineComponent({
         }
     },
     template:
-    `<span">[ {{ status }} ]</span>`
+    `<span>[ {{ status }} ]</span>`
 
 });
 

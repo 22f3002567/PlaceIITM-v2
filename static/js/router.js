@@ -1,4 +1,4 @@
-const { createRouter, createWebHistory } = VueRouter;
+const { createRouter, createWebHashHistory } = VueRouter;
 
 const routes = [
 
@@ -69,7 +69,7 @@ const router = createRouter({
 router.beforeEach((to, form, next) => {
     document.title = to.meta.title || "PlaceIITM";
 
-    const { isLoggedIn, user } = Store.Auth.stage;
+    const { isLoggedIn, user } = Store.Auth.state;
     const userRole = user?.role;
 
     if (to.meta.requiresGuest && isLoggedIn) {
