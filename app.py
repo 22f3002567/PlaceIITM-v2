@@ -1,46 +1,151 @@
+from curses import wrapper
+
 from flask import Flask, jsonify, request, render_template, redirect, url_for, send_from_directory
 
 import os
-from models import Company, Student, db, User, Role
 from werkzeug.security import generate_password_hash 
-app = Flask(__name__)
+
+from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
+from sqlalchemy import or_
 
 
-app.config['SECRET_KEY'] = 'placeiitm_secret_sidd'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///placeiitm.db' 
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['UPLOAD_FOLDER'] = os.path.join(
-    os.path.dirname(__file__), 'static', 'uploads', 'resumes'
-)
-app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
+from config import Config
+from extensions import db, jwt, cors
 
-if not os.path.exists(app.config['UPLOAD_FOLDER']):
-    os.makedirs(app.config['UPLOAD_FOLDER']) 
+from models import (db, User, Student, Company, PlacementDrive, Application, ExportJob,
+                    Role, CompanyStatus, DriveStatus, AppStatus, ExportStatus,
+                    )
 
-db.init_app(app)
+from functools import wraps
 
-def init_db():
+def create_app():
+    app = Flask(
+        __name__, 
+        template_folder='templates', 
+        static_folder='static'
+    )
+    app.config.from_object(Config)
+
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    os.makedirs(app.config['EXPORT_FOLDER'], exist_ok=True)
+
+    db.init_app(app)
+    jwt.init_app(app)
+    cors.init_app(app, resources={r"/api/*": {"origins": "*"}})
+
+
     with app.app_context():
         db.create_all()
+        _seed_admin(app)
+
+    _register_routes(app)
+
+    return app
+
+
+
+def _seed_admin(app):
+    if not User.query.filter_by(role=Role.Admin_role).first():
+        admin = User(
+            username='siddharth_admin',
+            email=app.config.get('ADMIN_EMAIL', 'siddharth@placeiitm.ac.in'),
+            role=Role.Admin_role,
+            is_active = True
+        )
+        admin.set_password("Siddharth@300")
+        db.session.add(admin)
+        db.session.commit()
+        print(f"\n Admin seeded successfully {admin.email}/ Siddharth@300 \n")
+    else:
+        print("\n Admin account already exists. Skipping seeding. \n")
+
+
+def ok(data=None, message='', status_code=200):
+    response = {
+        'success': True,
+        'data': None if data is None else data,
+        'message': message
+    }
+    return jsonify(response), status_code
+
+def err(message='Someting Went Wrong', status_code=400):
+    response = {
+        'success': False,
+        'data': None,
+        'message': message
+    }
+    return jsonify(response), status_code
+
+def safe_float(value, min_val=0.0, max_val=10.0):
+    try:
+        v = float(value)
+        return v if min_val <= v <= max_val else None
+    except (ValueError, TypeError):
+        return None
+    
+def safe_int(value):
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def admin_required(f):
+    @wraps(f)
+    @jwt_required()
+    def decorated(*args, **kwargs):
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+        if not user or not user.is_admin():
+            return err("Heyyy pleasee, Admin access required", 403)
         
-        if not User.query.filter_by(role=Role.Admin_role).first():
-            print("No Admin found. Initializing default Admin account...")
-            hashed_pw = generate_password_hash(
-                'Siddharth@300', method='pbkdf2:sha256', salt_length=8
-                ) 
-            
-            admin_user = User(
-                username='siddharth_admin',
-                email='siddharth@placeiitm.ac.in', 
-                passwd=hashed_pw, 
-                role=Role.Admin_role,
-                is_blacklisted=False
-            )
-            db.session.add(admin_user)
-            db.session.commit()
-            print("Admin created, siddharth@placeiitm.ac.in/Siddharth@300")
-        else:
-            print("Admin account already exists. Skipping initialization.")
+        if not user.is_active:
+            return err("Opppsss, Your account has be deactivated. Please contact support.", 403)
+        
+        return f(*args, **kwargs)
+    return decorated
+
+
+def company_required(f):
+    @wraps(f)
+    @jwt_required()
+    def decorated(*args, **kwargs):
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+        if not user or not user.is_company():
+            return err("Sirrr, Company access required", 403)
+        
+        if not user.is_active or user.is_blacklisted:
+            return err("Opppsss, Your account has be deactivated. Please contact support.", 403)
+        return f(*args, **kwargs)
+    return decorated
+
+def student_required(f):
+    @wraps(f)
+    @jwt_required()
+    def decorated(*args, **kwargs):
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+        if not user or not user.is_student():
+            return err("Heyyy dear, Student access required", 403)
+        
+        if not user.is_active or user.is_blacklisted:
+            return err("Opppsss, Your account has be deactivated. Please contact support.", 403)
+        return f(*args, **kwargs)
+    return decorated
+
+
+def _register_routes(app):
+
+    @app.route('/', defaults={'path': ''})
+    @app.route('/<path:path>')
+    def serve_vue_app(path):
+        if path.startswith('api/') or path.startswith('static/'):
+            from flask import abort
+            abort(404)
+        return render_template('index.html')
+
+
 
 
 
