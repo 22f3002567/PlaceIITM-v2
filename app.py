@@ -1,4 +1,3 @@
-from curses import wrapper
 
 from flask import Flask, jsonify, request, render_template, redirect, url_for, send_from_directory
 
@@ -26,8 +25,8 @@ def create_app():
     )
     app.config.from_object(Config)
 
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    os.makedirs(app.config['EXPORT_FOLDER'], exist_ok=True)
+    # os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    # os.makedirs(app.config['EXPORT_FOLDER'], exist_ok=True)
 
     db.init_app(app)
     jwt.init_app(app)
@@ -149,148 +148,194 @@ def _register_routes(app):
 
 
 
-@app.route('/')
-def index():
-    return "Welcome to the PlaceIITM V2."
 
+    @app.route('/api/auth/login', methods=['POST'])
+    def login():
+        body = request.get_json() or {}
+        email = body.get('email', '').strip().lower()
+        passwd = body.get('passwd', '').strip()
+        role = body.get('role', '')
 
-@app.route('/api/auth/login', methods=['POST'])
-def login():
-    body = request.get_json() or {}
-    email = body.get('email', '').strip().lower()
-    password = body.get('password', '').strip()
-    role = body.get('role', '')
+        if not all([email, passwd, role]):
+            return err("Oh-ho, Email, password and role are required.")
+        
+        if role not in Role.ALL:
+            return err("Heyyy, Invalid role. Please choose from: " + ", ".join(Role.ALL))
+        
+        user = User.query.filter_by(email=email).first()
 
-    if not all([email, password, role]):
-        return jsonify({'error': 'Email, password, and role are required.'}), 400
+        if not user or not user.check_password(passwd):
+            return err("Invalid credentials. Please check your email, password, and role.", 401)
 
-    user = User.query.filter_by(email=email, role=role).first()
+        if user.role != role:
+            return err(f"You selected '{role}'. but your account is registered as '{user.role}'.", 401)
+        
+        if user.is_blacklisted:
+            return err("Sorry, Your account has been blacklisted. Please contact to placement cell.", 403)
+        
+        access_token = create_access_token(identity=user.id)
+        refresh_token = create_refresh_token(identity=user.id)
 
-    if not user or not user.check_password(password):
-        return jsonify({"error": "Invalid credentials"}), 401
+        profile = None
+        if user.is_student() and user.student_profile:
+            profile = {
+                'stu_name': user.student_profile.stu_name, 
+                'roll_no': user.student_profile.roll_no
+                }
+        elif user.is_company() and user.company_profile:
+            profile = {
+                'company_name': user.company_profile.company_name,
+                'approval_status': user.company_profile.approval_status
+                }
+            
+        
 
-    return jsonify({
-        "message": "Login successful",
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "role": user.role
-        }
-    }), 200
+        return ok({
+            'access_token': access_token,
+            'refresh_token': refresh_token,
+            "message": "Login successful",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "role": user.role,
+                "profile": profile
+            }
+        }, f'Welcome back sir, {user.username}!!'), 200
 
-@app.route('/api/auth/refresh', methods=['POST'])
-def refresh():
-    return jsonify({"message": "Token refreshed successfully"}), 200
+    @app.route('/api/auth/refresh', methods=['POST'])
+    @jwt_required(refresh=True)
+    def refresh():      
+        user_id = get_jwt_identity()
+        access_token = create_access_token(identity=user_id)
+        return ok({"access_token": access_token}, "Token refreshed successfully"), 200
+            
 
-@app.route('/api/auth/me', methods=['GET'])
-def get_current_user():
-    return jsonify({"message": "Current user information"}), 200
-
-@app.route('/api/auth/register/student', methods=['POST'])
-def register_student():
-    body = request.get_json() or {}
-    username = body.get('username', '').strip()
-    email = body.get('email', '').strip().lower()
-    passwd = body.get('password', '').strip()
-    stu_name = body.get('stu_name', '').strip()
-    roll_no = body.get('roll_no', '').strip()
-    phone = body.get('phone', '').strip()
-
-    if not all([username, email, passwd, stu_name, roll_no, phone]):
-        return jsonify({'error': 'All fields are required.'}), 400
+    @app.route('/api/auth/me', methods=['GET'])
+    @jwt_required()
+    def me():
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+        if not user:
+            return err("User not found", 404)
+        
+        return ok(user.to_dict()), 200
     
-    if User.query.filter_by(email=email).first():
-        return jsonify({'error': 'Email already registered.'}), 400
-    
-    if User.query.filter_by(username=username).first():
-        return jsonify({'error': 'Username already taken.'}), 400
-    
-    user = User(
-        username=username,
-        email=email,
-        passwd=generate_password_hash(passwd, method='pbkdf2:sha256', salt_length=8),
-        role='student',
-        is_blacklisted=False
-    )
-    db.session.add(user)
-    db.session.flush()
-
-    student = Student(
-        user_id=user.id,
-        stu_name=stu_name,
-        email=email,
-        roll_no=roll_no,
-        phone=phone,
-        department=body.get('department', '').strip() or None,
-        degree=body.get('degree', '').strip() or None,
-        grad_year=body.get('grad_year', '').strip() or None,
-        cgpa=body.get('cgpa', '').strip() or None,
-        skills=body.get('skills', '').strip() or None
-    )
-    db.session.add(student)
-    db.session.commit()
-
-    return jsonify({"message": "Student registration successful"}), 201
 
 
-@app.route('/api/auth/register/company', methods=['POST'])
-def register_company():
-    body = request.get_json() or {}
-    username = body.get('username', '').strip()
-    email = body.get('email', '').strip().lower()
-    passwd = body.get('password', '').strip()
-    company_name = body.get('company_name', '').strip()
 
-    if not all([username, email, passwd, company_name]):
-        return jsonify({'error': 'All fields are required.'}), 400
-    
-    if User.query.filter_by(email=email).first():
-        return jsonify({'error': 'Email already registered.'}), 400
-    
-    if User.query.filter_by(username=username).first():
-        return jsonify({'error': 'Username already taken.'}), 400
-    
-    user = User(
-        username=username,
-        email=email,
-        passwd=generate_password_hash(passwd, method='pbkdf2:sha256', salt_length=8),
-        role='company',
-        is_blacklisted=False
-    )
-    db.session.add(user)
-    db.session.flush()
+    @app.route('/api/auth/register/student', methods=['POST'])
+    def register_student():
+        body = request.get_json() or {}
 
-    company = Company(
-        user_id=user.id,
-        company_name=company_name,
-        industry=body.get('industry', '').strip() or None,
-        hr_name=body.get('hr_name', '').strip() or None,
-        hr_contact=body.get('hr_contact', '').strip() or None,
-        website=body.get('website', '').strip() or None,
-        description=body.get('description', '').strip() or None,
-        location=body.get('location', '').strip() or None
-    )
-    db.session.add(company)
-    db.session.commit()
+        username = body.get('username', '').strip()
+        email = body.get('email', '').strip().lower()
+        passwd = body.get('password', '').strip()
+        stu_name = body.get('stu_name', '').strip()
+        roll_no = body.get('roll_no', '').strip()
+        phone = body.get('phone', '').strip()
 
+        if not all([username, email, passwd, stu_name, roll_no, phone]):
+            return err('oHH-HOO, Username, email, password, full name and roll number are required.'), 400
+        
+        if len(passwd) < 6:
+            return err('Password must be at least 6 characters long.'), 400
+        
+        if User.query.filter_by(email=email).first():
+            return err('Email already registered.'), 400
+        
+        if User.query.filter_by(username=username).first():
+            return err('Username already taken.'), 400
+        
+        if Student.query.filter_by(roll_no=roll_no).first():
+            return err('Ohh, A student with this roll number is already registered.'), 400
+        
+        user = User(
+            username=username,
+            email=email,
+            role=Role.Student_role,
+        )
+        user.set_password(passwd)
+        db.session.add(user)
+        db.session.flush()
 
-    return jsonify({"message": "Company registration successful"}), 201
+        student = Student(
+            user_id=user.id,
+            stu_name=stu_name,
+            email=email,
+            roll_no=roll_no,
+            phone=phone,
+            department=body.get('department', '').strip() or None,
+            degree=body.get('degree', '').strip() or None,
+            grad_year=body.get('grad_year', '').strip() or None,
+            cgpa=safe_float(body.get('cgpa', '').strip() or None),
+            skills=body.get('skills', '').strip() or None
+        )
+        db.session.add(student)
+        db.session.commit()
 
-@app.route('/api/admin/dashboard', methods=['GET'])
-def admin_dashboard():
-    return jsonify({"message": "Admin dashboard accessed successfully"}), 200
-
-@app.route('/api/company/dashboard', methods=['GET'])
-def company_dashboard():
-    return jsonify({"message": "Company dashboard accessed successfully"}), 200
-
-
-@app.route('/api/student/dashboard', methods=['GET'])
-def student_dashboard():
-    return jsonify({"message": "Student dashboard accessed successfully"}), 200
+        return ok(message= "Dear Student, Hurrayy your registration successful", status_code=201)
 
 
-if __name__ == '__main__':
-    init_db()
-    app.run(debug=True)
+    @app.route('/api/auth/register/company', methods=['POST'])
+    def register_company():
+        body = request.get_json() or {}
+
+        username = body.get('username', '').strip()
+        email = body.get('email', '').strip().lower()
+        passwd = body.get('password', '').strip()
+        company_name = body.get('company_name', '').strip()
+
+        if not all([username, email, passwd, company_name]):
+            return err('ohh-hoo, Username, email, password and company name are required.'), 400
+        
+        if len(passwd) < 6:
+            return err('Password must be at least 6 characters long.'), 400
+        
+        if User.query.filter_by(email=email).first():
+            return err('Email already registered.'), 400
+        
+        if User.query.filter_by(username=username).first():
+            return err('This Username already taken sir.'), 400
+        
+        user = User(
+            username=username,
+            email=email,
+            role=Role.Company_role,
+        )
+        user.set_password(passwd)
+        db.session.add(user)
+        db.session.flush()
+
+        company = Company(
+            user_id=user.id,
+            company_name=company_name,
+            industry=body.get('industry', '').strip() or None,
+            hr_name=body.get('hr_name', '').strip() or None,
+            hr_contact=body.get('hr_contact', '').strip() or None,
+            website=body.get('website', '').strip() or None,
+            description=body.get('description', '').strip() or None,
+            location=body.get('location', '').strip() or None
+        )
+        db.session.add(company)
+        db.session.commit()
+
+
+        return ok(message="Company registration successful!! Please wait for admin approval befor posting any drives", status_code=201)
+
+    @app.route('/api/admin/dashboard', methods=['GET'])
+    def admin_dashboard():
+        return jsonify({"message": "Admin dashboard accessed successfully"}), 200
+
+    @app.route('/api/company/dashboard', methods=['GET'])
+    def company_dashboard():
+        return jsonify({"message": "Company dashboard accessed successfully"}), 200
+
+
+    @app.route('/api/student/dashboard', methods=['GET'])
+    def student_dashboard():
+        return jsonify({"message": "Student dashboard accessed successfully"}), 200
+
+app = create_app()
+
+

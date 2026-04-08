@@ -4,7 +4,7 @@ const routes = [
 
     {
         path: '/',
-        name: 'Home',
+        
         component: window.LandingPage,
         meta: { title: "PlaceIITM - My Campus Placement Portal V2" }
     },
@@ -47,7 +47,14 @@ const routes = [
         name: 'Student Dashboard',
         component: window.StudentDashboard,
         meta: { requiresAuth: true, role: 'student', title: "PlaceIITM - Student Dashboard" }
+    },
+    {
+        path: '/:pathMatch(.*)*',
+        name: 'NotFound',
+        component: window.NotFoundPage,
+        meta: { title: "404 Not Found - PlaceIITM" }
     }
+
 
 ];
 
@@ -58,6 +65,40 @@ const router = createRouter({
         return { top: 0 };
     }
 });
+
+router.beforeEach((to, form, next) => {
+    document.title = to.meta.title || "PlaceIITM";
+
+    const { isLoggedIn, user } = Store.Auth.stage;
+    const userRole = user?.role;
+
+    if (to.meta.requiresGuest && isLoggedIn) {
+        return next(_dashboardFor(userRole));
+    }
+
+    if (to.meta.requiresAuth && !isLoggedIn) {
+        return next('/login');
+    }
+
+    if (to.meta.role && to.meta.role !== userRole) {
+        return next(_dashboardFor(userRole));
+    
+    }
+    next();
+});
+
+function _dashboardFor(role) {
+    switch(role) {
+        case 'admin': return '/admin/dashboard';
+        case 'company': return '/company/dashboard';
+        case 'student': return '/student/dashboard';
+        default: return '/';
+    }
+}
+
+    // const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
+    // const requiresGuest = to.matched.some(record => record.meta.requiresGuest);
+    // const requiredRole = to.matched.find(record => record.meta.role)?.meta.role;
 
 
 window.AppRouter = router;

@@ -47,7 +47,62 @@ const Auth = {
 
 };
 
-window.Store = {
-    Auth
+const Toast = {
+    state: toastState,
+
+    _add(message, type = 'info', duration = 4000) {
+        const id = ++_toastId;
+        toastState.toasts.push({ id, message, type });
+
+        setTimeout(() => 
+            this.remove(id), duration);
+    },
+
+    success(message) {
+        this._add(message, 'success');
+    },
+
+    error(message) {
+        this._add(message, 'error', 5000);
+    },
+
+    warning(message) {
+        this._add(message, 'warning');
+    },
+
+    info(message) {
+        this._add(message, 'info');
+    },
+
+    remove(id) {
+        const idx = toastState.toasts.findIndex(t => t.id === id);
+        if (idx !== -1) {
+            toastState.toasts.splice(idx, 1);
+        }
+    }
 };
 
+function handleApiError(error, fallback = "Something went wrong, Pleasee try again.") {
+    const message = error.response?.data?.message || fallback;
+    Toast.error(message);
+    return message;
+}
+
+const Rules = {
+    reguired: (msg = "This field is required") => ({ test: v => !!String(v || '').trim(), msg }),
+    minLen: (n, msg) => ({ test: v => String(v || '').length >= n, msg: msg || `Minimum length is ${n} Characters.` }),
+    email: (msg = "Please enter a valid email address.") => ({ test: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v || ''), msg }),
+    match: (other, msg = 'Fields do not match.') => ({ test: v => v === other, msg }),
+    minNum: (n, msg) => ({ test: v => parseFloat(v) >= n, msg: msg || `Minimum value is ${n}.` }),
+    maxNum: (n, msg) => ({ test: v => parseFloat(v) <= n, msg: msg || `Maximum value is ${n}.` }),
+    isDate: (msg = 'Enter a valid date.') => ({ test: v => !!v && !isNaN(Date.parse(v)), msg }),
+    futureDate: (msg = 'Date must be in the future.') => ({ test: v => v && new Date(v) > new Date(), msg }),
+
+}
+
+window.Store = {
+    Auth,
+    Toast, toastState, handleApiError
+};
+
+window.Rules = Rules;
