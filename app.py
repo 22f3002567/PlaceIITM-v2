@@ -324,8 +324,50 @@ def _register_routes(app):
         return ok(message="Company registration successful!! Please wait for admin approval befor posting any drives", status_code=201)
 
     @app.route('/api/admin/dashboard', methods=['GET'])
+    @admin_required
     def admin_dashboard():
-        return jsonify({"message": "Admin dashboard accessed successfully"}), 200
+        total_students = Student.query.count()
+        total_companies = Company.query.count()
+        total_drives = PlacementDrive.query.count()
+        total_apps = Application.query.count()
+        total_selected = Application.query.filter_by(status=AppStatus.Selected_app).count()
+        pending_cos = Company.query.filter_by(approval_status=CompanyStatus.Pending_status).count()
+        pending_drives = PlacementDrive.query.filter_by(status=DriveStatus.Pending_status).count()
+
+        recent_apps = (Application.query
+                       .join(Student).join(PlacementDrive).join(Company)
+                       .order_by(Application.applied_at.desc())
+                       .limit(10).all())
+        
+        recent_companies = Company.query.order_by(Company.registered_at.desc()).limit(6).all()
+
+        return ok({
+            'stats ': {
+                "total_students": total_students,
+                "total_companies": total_companies,
+                "total_drives": total_drives,
+                "total_apps": total_apps,
+                "total_selected": total_selected,
+                "pending_cos": pending_cos,
+                "pending_drives": pending_drives,
+            },
+            "recent_apps": [app.to_dict() for app in recent_apps],
+            "recent_companies": [co.to_dict() for co in recent_companies]
+        }, "Admin dashboard data fetched successfully"), 200
+
+    @app.route('/api/admin/companies', methods=['GET'])
+    @admin_required
+    def admin_get_companies():
+        companies = Company.query.order_by(Company.registered_at.desc()).all()
+        return ok([co.to_dict() for co in companies], "Companies fetched successfully"), 200
+    
+    @app.route('/api/admin/companies/<int:co_id>/approve', methods=['POST'])
+    @admin_required
+    def admin_approve_company(co_id):
+        return 'Company approval endpoint - to be implemented', 200
+    
+    
+    
 
     @app.route('/api/company/dashboard', methods=['GET'])
     def company_dashboard():
