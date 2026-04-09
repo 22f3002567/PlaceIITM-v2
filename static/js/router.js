@@ -4,39 +4,33 @@ const routes = [
 
     {
         path: '/',
-        
         component: window.LandingPage,
         meta: { title: "PlaceIITM - My Campus Placement Portal V2" }
     },
     {
         path: '/login',
-        name: 'Login',
         component: window.LoginPage,
         meta: { requiresGuest: true, title: "PlaceIITM - Sign In" }
     },
     {
         path: '/register/student',
-        name: 'Student Register',
         component: window.RegisterStudentPage,
         meta: { requiresGuest: true, title: "Student Register - PlaceIITM" }
     },
     {
         path: '/register/company',
-        name: 'Company Register',
         component: window.RegisterCompanyPage,
         meta: { requiresGuest: true, title: "Company Register - PlaceIITM" }
     },
 
     {
         path: '/admin/dashboard',
-        name: 'Admin Dashboard',
         component: window.AdminDashboard,
         meta: { requiresAuth: true, role: 'admin', title: "PlaceIITM - Admin Dashboard" }
     },
 
     {
         path: '/admin/companies',
-        name: 'Admin Companies',
         component: window.AdminCompanies,
         meta: { requiresAuth: true, role: 'admin' }
 
@@ -44,21 +38,18 @@ const routes = [
     
     {
         path: '/admin/students',
-        name: 'Admin Students',
         component: window.AdminStudents, 
         meta: { requiresAuth: true, role: 'admin' }
     },
 
     {
         path: '/admin/drives',
-        name: "Admin Drives",
         component: window.AdminDrives, 
         meta: { requiresAuth: true, role: 'admin'}
     },
 
     {
         path: '/admin/applications',
-        name: "Admin Applications",
         component: window.AdminApplications,
         meta: { requiresAuth: true, role: 'admin'}
         
@@ -71,7 +62,6 @@ const routes = [
     },
     {
         path: '/company/dashboard',
-        name: 'Company Dashboard',
         component: window.CompanyDashboard,
         meta: { requiresAuth: true, role: 'company', title: "PlaceIITM - Company Dashboard" }
 
@@ -79,7 +69,6 @@ const routes = [
 
     {
         path: '/student/dashboard',
-        name: 'Student Dashboard',
         component: window.StudentDashboard,
         meta: { requiresAuth: true, role: 'student', title: "PlaceIITM - Student Dashboard" }
     },
@@ -101,24 +90,30 @@ const router = createRouter({
     }
 });
 
+
+//Navigation Guards
 router.beforeEach((to, from, next) => {
-    document.title = to.meta.title || "PlaceIITM";
+    // Update page title
+    document.title = to.meta.title || 'PlaceIITM';
 
     const { isLoggedIn, user } = Store.Auth.state;
     const userRole = user?.role;
 
+    // Logged-in users should not see login/register pages
     if (to.meta.requiresGuest && isLoggedIn) {
         return next(_dashboardFor(userRole));
     }
 
+    // Protected route must be logged in
     if (to.meta.requiresAuth && !isLoggedIn) {
         return next('/login');
     }
 
-    if (to.meta.role && to.meta.role !== userRole) {
+    // Role check ;-user is logged in but wrong role
+    if (to.meta.role && userRole !== to.meta.role) {
         return next(_dashboardFor(userRole));
-    
     }
+
     next();
 });
 

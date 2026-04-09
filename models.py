@@ -357,3 +357,31 @@ class ExportJob(db.Model):
 
     def __repr__(self):
         return f'<ExportJob Student:{self.student_id} [{self.status}]>'
+
+
+DEPARTMENTS = [
+    'Computer Science & Engineering',
+    'Data Science',
+    'Electronics & Communication',
+    'Mathematics and Computing',
+    'Electrical Engineering',
+    'Civil Engineering',
+    'Aerospace Engineering',
+    'Other'
+]
+
+DEGREES = ['Foundation', 'Diploma', 'B.Sc', 'BS', 'B.Tech']
+
+INDUSTRIES = [
+    'Technology & Software',
+    'Finance & FinTech',
+    'Healthcare & Biotech',
+    'E-Commerce & Internet',
+    'Consulting & Analytics',
+    'Automotive & Robotics',
+    'Government & Defense',
+    'Other'
+]
+
+JOB_TYPES = ['Full Time', 'Part Time', 'Internship', 'Internship + PPO', 'Contract']
+

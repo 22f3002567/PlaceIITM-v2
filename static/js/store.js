@@ -1,6 +1,7 @@
 const { reactive } = Vue;
 
 //Auth State 
+
 const _storedUser = localStorage.getItem('user');
 
 const authState = reactive({
@@ -40,6 +41,7 @@ const Auth = {
         return authState.user?.role === 'company'; 
     },
 
+
     get isStudent() {
         return authState.user?.role === 'student'; 
     },
@@ -47,6 +49,7 @@ const Auth = {
 
 
 // Toast Notification System
+
 const toastState = reactive({ toasts: [] });
 let _toastId = 0;
 
@@ -59,21 +62,20 @@ const Toast = {
         setTimeout(() => this.remove(id), duration);
     },
 
-    success(msg) { 
-        this._add(msg, 'success'); 
+    success(message) {
+        this._add(message, 'success');
     },
 
-
-    error(msg) { 
-        this._add(msg, 'error',   5000); 
+    error(message) { 
+        this._add(message, 'error', 5000); 
     },
 
-    warning(msg) { 
-        this._add(msg, 'warning'); 
+    warning(message) { 
+        this._add(message, 'warning'); 
     },
 
-    info(msg) { 
-        this._add(msg, 'info'); 
+    info(message) { 
+        this._add(message, 'info'); 
     },
 
     remove(id) {
@@ -83,35 +85,46 @@ const Toast = {
 };
 
 
-//Global error handler
-function handleApiError(e) {
-    const msg = e?.response?.data?.message || e?.message || 'An unexpected error occurred.';
-    Toast.error(msg);
-    console.error('[API Error]', msg, e);
+//Helper: handle API errors uniformly
+
+function handleApiError(error, fallback = 'Something went wrong. Please try again.') {
+    const message = error?.response?.data?.message || fallback;
+    Toast.error(message);
+    return message;
 }
 
 
-// Date helper - available globally in all Vue components 
-window.formatDate = (isoString) => {
-    if (!isoString) return '-';
-    const d = new Date(isoString);
-    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+// Form Validator
+// Usage: const errors = validate(form, rules)
+// rules: { fieldName: [{ test: (v) => !!v, msg: 'Required' }] }
+// Returns: {} if valid, { fieldName: 'error message' } if not
+
+function validate(form, rules) {
+    const errors = {};
+    for (const [field, checks] of Object.entries(rules)) {
+        for (const { test, msg } of checks) {
+            if (!test(form[field])) {
+                errors[field] = msg;
+                break;
+            }
+        }
+    }
+    return errors;
+}
+
+// Common rule builders
+const Rules = {
+    required: (msg = 'This field is required.')          => ({ test: v => !!String(v || '').trim(), msg }),
+    minLen: (n, msg)                                   => ({ test: v => String(v || '').length >= n, msg: msg || `Minimum ${n} characters.` }),
+    email: (msg = 'Enter a valid email address.')     => ({ test: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v || ''), msg }),
+    match: (other, msg = 'Fields do not match.')      => ({ test: v => v === other, msg }),
+    minNum: (n, msg)                                   => ({ test: v => parseFloat(v) >= n, msg: msg || `Minimum value is ${n}.` }),
+    maxNum: (n, msg)                                   => ({ test: v => parseFloat(v) <= n, msg: msg || `Maximum value is ${n}.` }),
+    isDate: (msg = 'Enter a valid date.')              => ({ test: v => !!v && !isNaN(Date.parse(v)), msg }),
+    futureDate: (msg = 'Date must be in the future.')      => ({ test: v => v && new Date(v) > new Date(), msg }),
 };
 
-window.daysLeftDisplay = (days) => {
-    if (days === null || days === undefined) return '';
-    if (days === 0) return 'Closes today!';
-    if (days <= 3) return `${days} day(s) left`;
-    return `${days} days left`;
-};
-
-window.daysLeftClass = (days) => {
-    if (days === null || days === undefined) return '';
-    if (days <= 1) return 'days-urgent';
-    if (days <= 3) return 'days-warning';
-    return 'days-normal';
-};
-
-
-// Expose everything globally 
-window.Store = { Auth, Toast, toastState, handleApiError };
+//Expose globally
+window.Store   = { Auth, Toast, toastState, handleApiError };
+window.validate = validate;
+window.Rules    = Rules;

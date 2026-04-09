@@ -36,12 +36,14 @@ api.interceptors.response.use(
             const refreshToken = localStorage.getItem('refresh_token');
 
             if (!refreshToken) {
+                // No refresh token force logout
                 _clearTokens();
                 window.location.hash = '#/login';
                 return Promise.reject(error);
             }
 
             if (_isRefreshing) {
+                // Already refreshing - queue this request
                 return new Promise((resolve, reject) => {
                     _refreshQueue.push({ resolve, reject });
                 }).then(token => {

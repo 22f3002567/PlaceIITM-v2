@@ -1,5 +1,5 @@
+const { createApp, defineComponent} = Vue;
 
-const { createApp, defineComponent } = Vue;
 
 const App = defineComponent({
 
@@ -7,22 +7,32 @@ const App = defineComponent({
 
     template: `
         <div>
+            <!-- Global Navbar -->
             <app-navbar />
-            <main style="padding: 0;">
-                <router-view />
+
+            <!-- Page content -->
+            <main class="ppa-main">
+                <router-view v-slot="{ Component }">
+                    <transition name="fade" mode="out-in">
+                        <component :is="Component" />
+                    </transition>
+                </router-view>
             </main>
 
-            <!-- Toast container - bottom right -->
-            <div style="position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px;">
+            <!-- Toast notification container -->
+            <div class="ppa-toast-container">
                 <div
                     v-for="toast in toastState.toasts"
                     :key="toast.id"
-                    style="padding: 10px 16px; border-radius: 4px; color: white; display: flex; align-items: center; gap: 8px; min-width: 260px; max-width: 400px;"
-                    :style="toastBg(toast.type)"
+                    class="ppa-toast"
+                    :class="toast.type"
                 >
-                    <span style="flex: 1;">{{ toast.message }}</span>
-                    <button @click="Store.Toast.remove(toast.id)"
-                        style="background: none; border: none; color: white; cursor: pointer; font-size: 1rem;">✕</button>
+                    <i :class="toastIcon(toast.type)" style="margin-top:2px; flex-shrink:0;"></i>
+                    <span style="flex:1;">{{ toast.message }}</span>
+                    <button
+                        @click="Store.Toast.remove(toast.id)"
+                        style="background:none;border:none;cursor:pointer;padding:0;opacity:0.5;font-size:1rem;"
+                    >✕</button>
                 </div>
             </div>
         </div>
@@ -43,6 +53,18 @@ const App = defineComponent({
     }
 });
 
+
+// A spinner shown while data is loading
+const AppSpinner = defineComponent({
+    name: 'AppSpinner',
+    template: `
+        <div class="ppa-spinner-overlay">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    `
+});
 
 const AppEmpty = defineComponent({
 
@@ -75,7 +97,24 @@ const StatusBadge = defineComponent({
         }
     },
     template:
-    `<span>[ {{ status }} ]</span>`
+    `<span>[ {{ status }} ]</span>`,
+
+    computed: {
+        badgeClass() {
+            const map = {
+                'pending': 'badge-pending',
+                'approved': 'badge-approved',
+                'rejected': 'badge-rejected',
+                'closed': 'badge-closed',
+                'Applied': 'badge-applied',
+                'Shortlisted': 'badge-shortlisted',
+                'Interview':'badge-interview',
+                'Selected': 'badge-selected',
+                'Rejected': 'badge-rejected',
+            };
+            return map[this.status] || 'bg-secondary text-white';
+        }
+    }
 
 });
 
@@ -84,7 +123,8 @@ const ConfirmModal = defineComponent({
     props: {
         title: { type: String, default: 'Are you sure?' },
         message: { type: String, default: 'This action cannot be undone.' },
-        confirmText: { type: String, default: 'Confirm' }
+        confirmText: { type: String, default: 'Confirm' },
+        danger: { type: Boolean, default: true }
     },
     emits: ['confirm', 'cancel'],
     template: `
@@ -100,6 +140,30 @@ const ConfirmModal = defineComponent({
 
 
 
+// Global utility function exposed to all components
+
+// Format date strings nicely
+window.formatDate = (isoString) => {
+    if (!isoString) return '-';
+    const d = new Date(isoString);
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+// Days left display helper
+window.daysLeftDisplay = (days) => {
+    if (days === null || days === undefined) return '';
+    if (days === 0) return 'Closes today!';
+    if (days <= 3)  return `${days} day(s) left`;
+    return `${days} days left`;
+};
+
+// Days left CSS class
+window.daysLeftClass = (days) => {
+    if (days === null || days === undefined) return '';
+    if (days <= 1) return 'days-urgent';
+    if (days <= 3) return 'days-warning';
+    return 'days-normal';
+};
 
 const app = createApp(App);
 

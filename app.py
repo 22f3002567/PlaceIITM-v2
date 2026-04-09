@@ -13,6 +13,7 @@ from extensions import db, jwt, cors
 
 from models import (db, User, Student, Company, PlacementDrive, Application, ExportJob,
                     Role, CompanyStatus, DriveStatus, AppStatus, ExportStatus,
+                    DEPARTMENTS, DEGREES, INDUSTRIES, JOB_TYPES
                     )
 
 from functools import wraps
@@ -34,7 +35,7 @@ def create_app():
 
 
     with app.app_context():
-        #os.makedirs(os.path.join(app.root_path, 'instance'), exist_ok=True)
+        os.makedirs(os.path.join(app.root_path, 'instance'), exist_ok=True)
         db.create_all()
         _seed_admin(app)
 
