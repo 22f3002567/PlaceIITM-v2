@@ -358,20 +358,81 @@ def _register_routes(app):
     @app.route('/api/admin/companies', methods=['GET'])
     @admin_required
     def admin_get_companies():
+        search = request.args.get('search', '').strip()
+        status = request.args.get('status', '').strip()
+
+        query = Company.query.join(User)
+        if search:
+            query = query.filter(or_(
+                Company.company_name.ilike(f'%{search}%'),
+                Company.industry.ilike(f'%{search}%'),
+                User.email.ilike(f'%{search}%')
+            ))
+        if status:
+            query = query.filter(Company.approval_status == status)
+
+
         companies = Company.query.order_by(Company.registered_at.desc()).all()
+
         return ok([co.to_dict() for co in companies], "Companies fetched successfully"), 200
+    
+
     
     @app.route('/api/admin/companies/<int:co_id>/approve', methods=['POST'])
     @admin_required
     def admin_approve_company(co_id):
-        return 'Company approval endpoint - to be implemented', 200
+
+        co = Company.query.get_or_404(co_id)
+        co.approval_status = CompanyStatus.Approved_status
+        db.session.commit()
+
+        return ok(message=f"'{co.company_name}' hass been approved..")
     
     
+    @app.route('/api/admin/companies/<int:co_id>/reject', method=["POST"])
+    @admin_required
+    def admin_reject_company(co_id):
+        co = Company.query.get_or_404(co_id)
+        co.approval_status = CompanyStatus.Rejected_status
+        db.session.commit()
+        return ok(message=f"'{co.company_name}' has been rejectedd...")
+    
+    @app.route('/api/admin/companies/<int:co_id>/blacklist', methods=['POST'])
+    @admin_required
+    def admin_toggle_company_blacklist(co_id):
+        co = Company.query.get_or_404(co_id)
+        co.user.is_blacklisted = not co.user.is_blacklisted
+        db.session.commit()
+        action = 'blacklisted' if co.user.is_blacklisted else "unblacklisted"
+        return ok(message=f"'{co.company_name}' has been {action}...")
+    
+    @app.route('/api/admin/companies/<int:co_id>', methods=['DELETE'])
+    @admin_required
+    def admin_delete_company(co_id):
+        co = Company.query.get_or_404(co_id)
+        name = co.company_name
+        db.session.delete(co.user)
+        db.session.commit()
+        return ok(message=f"'{name}' deleted..")
+    
+    @app.route('/api/admin/companies/<int:co_id>', methods=['PUT'])
+    @admin_required
+    def admin_edit_company(co_id):
+        co = Company.query.get_or_404(co_id)
+        body = request.get_json() or {}
+
+        co.company_name = body.get('company_name', co.company_name).strip()
+        co.industry = body.get('industry', co.industry)
+        co.hr_name = body.get('hr_name', co.hr_name)
+        co.hr_contact = body.get('hr_contact', co.hr_contact)
+        co.website = body.get('description', co.description)
+        co.location = body.get('location', co.location)
+        db.session.commit()
+        return ok(co.to_dict(), f"'{co.company_name}' updated..")
     
 
-    @app.route('/api/company/dashboard', methods=['GET'])
-    def company_dashboard():
-        return jsonify({"message": "Company dashboard accessed successfully"}), 200
+    
+
 
 
     @app.route('/api/student/dashboard', methods=['GET'])
