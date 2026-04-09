@@ -35,6 +35,41 @@ const routes = [
     },
 
     {
+        path: '/admin/companies',
+        name: 'Admin Companies',
+        component: window.AdminCompanies,
+        meta: { requiresAuth: true, role: 'admin' }
+
+    },
+    
+    {
+        path: '/admin/students',
+        name: 'Admin Students',
+        component: window.AdminStudents, 
+        meta: { requiresAuth: true, role: 'admin' }
+    },
+
+    {
+        path: '/admin/drives',
+        name: "Admin Drives",
+        component: window.AdminDrives, 
+        meta: { requiresAuth: true, role: 'admin'}
+    },
+
+    {
+        path: '/admin/applications',
+        name: "Admin Applications",
+        component: window.AdminApplications,
+        meta: { requiresAuth: true, role: 'admin'}
+        
+    },
+
+    {
+        path: '/admin/reports',
+        component: window.AdminReports,
+        meta: {requiresAuth: true, role:'admin'}
+    },
+    {
         path: '/company/dashboard',
         name: 'Company Dashboard',
         component: window.CompanyDashboard,
@@ -66,7 +101,7 @@ const router = createRouter({
     }
 });
 
-router.beforeEach((to, form, next) => {
+router.beforeEach((to, from, next) => {
     document.title = to.meta.title || "PlaceIITM";
 
     const { isLoggedIn, user } = Store.Auth.state;

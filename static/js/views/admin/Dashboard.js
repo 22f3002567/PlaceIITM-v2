@@ -113,9 +113,9 @@ window.AdminDashboard = {
                 const res = await API.admin.dashboard();
                 data.value = res.data.data;
             } catch (e) {
-                console.error("Failed to load dashboard data:", err);
+                console.error("Failed to load dashboard data:", e);
                 alert("Failed to load dashboard data. Please try again later.");
-                Store.handleError(e);
+                Store.handleApiError(e);
             } finally {
                 loading.value = false;
             }

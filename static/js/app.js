@@ -1,39 +1,46 @@
+
 const { createApp, defineComponent } = Vue;
 
 const App = defineComponent({
 
-    name: "PlaceIITM",
+    name: 'PlaceIITM',
 
-    template:
-    `<div>
-        <app-navbar />
-
-        <main>
-            <router-view v-slot="{ Component }">
-                <component :is="Component" />
-            </router-view>
-        </main>
-
+    template: `
         <div>
-            <div v-for="toast in toastState.toasts" :key="toast.id" class="toast">
-                <span>{{ toast.message }}</span>
-                <button @click="Store.Toast.remove(toast.id)">X</button>
+            <app-navbar />
+            <main style="padding: 0;">
+                <router-view />
+            </main>
+
+            <!-- Toast container - bottom right -->
+            <div style="position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px;">
+                <div
+                    v-for="toast in toastState.toasts"
+                    :key="toast.id"
+                    style="padding: 10px 16px; border-radius: 4px; color: white; display: flex; align-items: center; gap: 8px; min-width: 260px; max-width: 400px;"
+                    :style="toastBg(toast.type)"
+                >
+                    <span style="flex: 1;">{{ toast.message }}</span>
+                    <button @click="Store.Toast.remove(toast.id)"
+                        style="background: none; border: none; color: white; cursor: pointer; font-size: 1rem;">✕</button>
+                </div>
             </div>
         </div>
-    </div>`,
+    `,
 
     setup() {
         const { toastState } = Store;
-        return { toastState, Store };
+        function toastBg(type) {
+            const colors = {
+                success: 'background: #059669;',
+                error: 'background: #dc2626;',
+                warning: 'background: #d97706;',
+                info: 'background: #1a56db;'
+            };
+            return colors[type] || colors.info;
+        }
+        return { toastState, toastBg, Store };
     }
-});
-
-const AppSpinner = defineComponent({
-
-    name: "AppSpinner",
-    template:
-    `<div class="spinner">Loading...</div>`
-
 });
 
 
@@ -108,3 +115,5 @@ app.component('confirm-modal', ConfirmModal);
 app.mount('#app');
 
 console.log("PlaceIITM V2 booted or say Vue app initialized successfully!");
+
+

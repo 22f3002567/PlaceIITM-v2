@@ -1,24 +1,23 @@
 const { reactive } = Vue;
 
+//Auth State 
 const _storedUser = localStorage.getItem('user');
-const _storedToken = localStorage.getItem('access_token');
 
 const authState = reactive({
     user: _storedUser ? JSON.parse(_storedUser) : null,
-    isLoggedIn: !!_storedToken,
-    loading: false,
+    isLoggedIn: !!localStorage.getItem('access_token'),
+    loading: false
 });
 
 const Auth = {
     state: authState,
-    
+
     login(userData, accessToken, refreshToken) {
         authState.user = userData;
         authState.isLoggedIn = true;
         localStorage.setItem('access_token', accessToken);
-        localStorage.setItem('refresh_token', refreshToken );
+        localStorage.setItem('refresh_token', refreshToken);
         localStorage.setItem('user', JSON.stringify(userData));
-    
     },
 
     logout() {
@@ -29,30 +28,27 @@ const Auth = {
         localStorage.removeItem('user');
     },
 
-    get role() {
+    get role() { 
         return authState.user?.role || null;
     },
 
     get isAdmin() {
-        return authState.user?.role === 'admin';
+        return authState.user?.role === 'admin'; 
     },
 
-    get isCompany() {
-        return authState.user?.role === 'company';
+    get isCompany() { 
+        return authState.user?.role === 'company'; 
     },
 
     get isStudent() {
-        return authState.user?.role === 'student';
-    }
-
+        return authState.user?.role === 'student'; 
+    },
 };
 
-const toastState = reactive({
-    toasts: []
-});
 
+// Toast Notification System
+const toastState = reactive({ toasts: [] });
 let _toastId = 0;
-
 
 const Toast = {
     state: toastState,
@@ -60,56 +56,62 @@ const Toast = {
     _add(message, type = 'info', duration = 4000) {
         const id = ++_toastId;
         toastState.toasts.push({ id, message, type });
-
-        setTimeout(() => 
-            this.remove(id), duration);
+        setTimeout(() => this.remove(id), duration);
     },
 
-    success(message) {
-        this._add(message, 'success');
+    success(msg) { 
+        this._add(msg, 'success'); 
     },
 
-    error(message) {
-        this._add(message, 'error', 5000);
+
+    error(msg) { 
+        this._add(msg, 'error',   5000); 
     },
 
-    warning(message) {
-        this._add(message, 'warning');
+    warning(msg) { 
+        this._add(msg, 'warning'); 
     },
 
-    info(message) {
-        this._add(message, 'info');
+    info(msg) { 
+        this._add(msg, 'info'); 
     },
 
     remove(id) {
         const idx = toastState.toasts.findIndex(t => t.id === id);
-        if (idx !== -1) {
-            toastState.toasts.splice(idx, 1);
-        }
+        if (idx !== -1) toastState.toasts.splice(idx, 1);
     }
 };
 
-function handleApiError(error, fallback = "Something went wrong, Pleasee try again.") {
-    const message = error.response?.data?.message || fallback;
-    Toast.error(message);
-    return message;
+
+//Global error handler
+function handleApiError(e) {
+    const msg = e?.response?.data?.message || e?.message || 'An unexpected error occurred.';
+    Toast.error(msg);
+    console.error('[API Error]', msg, e);
 }
 
-const Rules = {
-    reguired: (msg = "This field is required") => ({ test: v => !!String(v || '').trim(), msg }),
-    minLen: (n, msg) => ({ test: v => String(v || '').length >= n, msg: msg || `Minimum length is ${n} Characters.` }),
-    email: (msg = "Please enter a valid email address.") => ({ test: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v || ''), msg }),
-    match: (other, msg = 'Fields do not match.') => ({ test: v => v === other, msg }),
-    minNum: (n, msg) => ({ test: v => parseFloat(v) >= n, msg: msg || `Minimum value is ${n}.` }),
-    maxNum: (n, msg) => ({ test: v => parseFloat(v) <= n, msg: msg || `Maximum value is ${n}.` }),
-    isDate: (msg = 'Enter a valid date.') => ({ test: v => !!v && !isNaN(Date.parse(v)), msg }),
-    futureDate: (msg = 'Date must be in the future.') => ({ test: v => v && new Date(v) > new Date(), msg }),
 
-}
-
-window.Store = {
-    Auth,
-    Toast, toastState, handleApiError
+// Date helper - available globally in all Vue components 
+window.formatDate = (isoString) => {
+    if (!isoString) return '-';
+    const d = new Date(isoString);
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
-window.Rules = Rules;
+window.daysLeftDisplay = (days) => {
+    if (days === null || days === undefined) return '';
+    if (days === 0) return 'Closes today!';
+    if (days <= 3) return `${days} day(s) left`;
+    return `${days} days left`;
+};
+
+window.daysLeftClass = (days) => {
+    if (days === null || days === undefined) return '';
+    if (days <= 1) return 'days-urgent';
+    if (days <= 3) return 'days-warning';
+    return 'days-normal';
+};
+
+
+// Expose everything globally 
+window.Store = { Auth, Toast, toastState, handleApiError };
