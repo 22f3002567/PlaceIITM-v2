@@ -144,9 +144,23 @@ window.API = {
 
     // Student
     student: {
-        dashboard: () => api.get('/student/dashboard'),
+        dashboard:() => api.get('/student/dashboard'),
         lookups: () => api.get('/student/lookups'),
-    
+
+        getDrives: (params) => api.get('/student/drives', { params }),
+        applyToDrive: (id) => api.post(`/student/drives/${id}/apply`),
+
+        getApplications: (params) => api.get('/student/applications', { params }),
+        getHistory:() => api.get('/student/history'),
+
+        getProfile:() => api.get('/student/profile'),
+        updateProfile: (data) => api.put('/student/profile', data),
+        uploadResume: (formData)  => api.post('/student/profile/resume', formData, {
+                                            headers: { 'Content-Type': 'multipart/form-data' }
+                                        }),
+
+        triggerExport: () => api.post('/student/export'),
+        exportStatus: (jobId)  => api.get(`/student/export/${jobId}`),
     },
 
     

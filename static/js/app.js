@@ -27,7 +27,7 @@ const App = defineComponent({
                     class="ppa-toast"
                     :class="toast.type"
                 >
-                    <i :class="toastIcon(toast.type)" style="margin-top:2px; flex-shrink:0;"></i>
+                    <i :class="toastBg(toast.type)" style="margin-top:2px; flex-shrink:0;"></i>
                     <span style="flex:1;">{{ toast.message }}</span>
                     <button
                         @click="Store.Toast.remove(toast.id)"

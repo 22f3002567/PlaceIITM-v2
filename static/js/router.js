@@ -100,6 +100,27 @@ const routes = [
         component: window.StudentDashboard,
         meta: { requiresAuth: true, role: 'student', title: "PlaceIITM - Student Dashboard" }
     },
+    { 
+        path: '/student/drives', 
+        component: window.StudentBrowseDrives, 
+        meta: { requiresAuth: true, role: 'student' } 
+    },
+    { 
+        path: '/student/applications', 
+        component: window.StudentMyApplications, 
+        meta: { requiresAuth: true, role: 'student' } 
+    },
+    { 
+        path: '/student/history',      
+        component: window.StudentHistory, 
+        meta: { requiresAuth: true, role: 'student' } 
+    },
+    { 
+        path: '/student/profile', 
+        component: window.StudentProfile, 
+        meta: { requiresAuth: true, role: 'student' } 
+    },
+
     {
         path: '/:pathMatch(.*)*',
         name: 'NotFound',

@@ -17,6 +17,7 @@ from models import (db, User, Student, Company, PlacementDrive, Application, Exp
                     )
 
 from functools import wraps
+from datetime import date, datetime
 
 def create_app():
     app = Flask(
@@ -226,6 +227,8 @@ def _register_routes(app):
     @app.route('/api/auth/register/student', methods=['POST'])
     def register_student():
         body = request.get_json() or {}
+        print("RAW BODY:", body)
+        print("TYPE:", type(body))
 
         username = body.get('username', '').strip()
         email = body.get('email', '').strip().lower()
@@ -234,20 +237,25 @@ def _register_routes(app):
         roll_no = body.get('roll_no', '').strip()
         phone = body.get('phone', '').strip()
 
-        if not all([username, email, passwd, stu_name, roll_no, phone]):
-            return err('oHH-HOO, Username, email, password, full name and roll number are required.'), 400
+        if not all([username, email, passwd, stu_name, roll_no]):
+            print("FAILED AT: all field required")
+            return err('oHH-HOO, Username, email, password, full name and roll number are required.')
         
         if len(passwd) < 6:
+            print("FAILED AT: passawar length")
             return err('Password must be at least 6 characters long.')
         
         if User.query.filter_by(email=email).first():
+            print("FAILED AT: email")
             return err('Email already registered.')
         
         if User.query.filter_by(username=username).first():
+            print("FAILED AT: username")
             return err('Username already taken.')
         
         if Student.query.filter_by(roll_no=roll_no).first():
-            return err('Ohh, A student with this roll number is already registered.'), 400
+            print("FAILED AT: rollno")
+            return err('Ohh, A student with this roll number is already registered.')
         
         user = User(
             username=username,
@@ -266,8 +274,9 @@ def _register_routes(app):
             phone=phone,
             department=body.get('department', '').strip() or None,
             degree=body.get('degree', '').strip() or None,
-            grad_year=body.get('gradudation_year', '').strip() or None,
-            cgpa=safe_float(body.get('cgpa', '').strip() or None),
+            grad_year=body.get('graduation_year', '') or None,
+            
+            cgpa= float(body.get('cgpa', '') or None),
             skills=body.get('skills', '').strip() or None
         )
         db.session.add(student)
@@ -931,6 +940,87 @@ def _register_routes(app):
 
         drives = query.order_by(PlacementDrive.application_deadline.asc()).all()
         return ok([d.to_dict() for d in drives])
+    
+    @app.route('/api/student/drives/<int:drive_id>/apply', methods=['POST'])
+    @student_required
+    def student_apply(drive_id):
+        user_id = get_jwt_identity()
+        student = Student.query.filter_by(user_id=user_id).first()
+        drive = PlacementDrive.query.get_or_404(drive_id)
+
+        if not drive.is_open():
+            return err('Sorry, you missed.. This drive is no longer accepting applications.')
+
+        existing = Application.query.filter_by(
+            student_id=student.id, drive_id=drive_id
+        ).first()
+        if existing:
+            return err('You have already applied to this drive.')
+
+        eligible, reason = drive.student_is_eligible(student)
+        if not eligible:
+            return err(f'Opps.. You are not eligible for this drive. {reason}')
+
+        application = Application(student_id=student.id, drive_id=drive_id)
+        db.session.add(application)
+        db.session.commit()
+        return ok(application.to_dict(),
+                  f'Successfully applied to {drive.job_title} at {drive.company.company_name}!',
+                  201)
+
+
+    @app.route('/api/student/profile', methods=['GET'])
+    @student_required
+    def student_get_profile():
+        user_id = get_jwt_identity()
+        student = Student.query.filter_by(user_id=user_id).first()
+        if not student:
+            return err('Student profile not found.', 404)
+        return ok(student.to_dict())
+
+
+    @app.route('/api/student/profile', methods=['PUT'])
+    @student_required
+    def student_update_profile():
+        user_id = get_jwt_identity()
+        student = Student.query.filter_by(user_id=user_id).first()
+        body = request.get_json() or {}
+
+        student.full_name = body.get('full_name', student.full_name).strip()
+        student.phone  = body.get('phone', student.phone)
+        student.department = body.get('department', student.department)
+        student.degree = body.get('degree', student.degree)
+        student.graduation_year = safe_int(body.get('graduation_year')) or student.graduation_year
+        student.cgpa  = safe_float(body.get('cgpa')) or student.cgpa
+        student.skills = body.get('skills', student.skills)
+        student.bio = body.get('bio', student.bio)
+        db.session.commit()
+        return ok(student.to_dict(), 'Profile updated.')
+
+
+    @app.route('/api/student/profile/resume', methods=['POST'])
+    @student_required
+    def student_upload_resume():
+        from werkzeug.utils import secure_filename
+        user_id = get_jwt_identity()
+        student = Student.query.filter_by(user_id=user_id).first()
+
+        if 'resume' not in request.files:
+            return err('No file provided.')
+        file = request.files['resume']
+        if not file or not file.filename:
+            return err('No file selected.')
+        # if not allowed_file(file.filename):
+        #     return err('Only PDF files are allowed.')
+
+        filename = secure_filename(
+            student.email.replace('@', '_').replace('.', '_') + '_resume.pdf'
+        )
+        file.save(os.path.join(Config.UPLOAD_FOLDER, filename))
+        student.resume_filename = filename
+        db.session.commit()
+        return ok({'resume_filename': filename}, 'Resume uploaded.')
+
 
 app = create_app()
 

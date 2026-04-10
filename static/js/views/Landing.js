@@ -220,7 +220,7 @@ window.RegisterStudentPage = {
         <h3>Personal Details</h3>
         <div>
             <label>Full Name *: </label>
-            <input v-model="form.full_name" placeholder="As on official records" size="35" />
+            <input v-model="form.stu_name" placeholder="As on official records" size="35" />
         </div>
         <div>
             <label>Phone: </label>
@@ -269,7 +269,7 @@ window.RegisterStudentPage = {
 
         const form = reactive({
             username: '', email: '', password: '', confirm_password: '',
-            full_name: '', phone: '', roll_no: '', department: '', degree: '',
+            stu_name: '', phone: '', roll_no: '', department: '', degree: '',
             graduation_year: '', cgpa: '', skills: ''
         });
 
@@ -281,7 +281,7 @@ window.RegisterStudentPage = {
         });
 
         async function submit() {
-            if (!form.username || !form.email || !form.password || !form.full_name || !form.roll_no)
+            if (!form.username || !form.email || !form.password || !form.stu_name || !form.roll_no)
                 return Store.Toast.warning('Please fill all required fields (*).');
             if (form.password !== form.confirm_password)
                 return Store.Toast.warning('Passwords do not match.');
