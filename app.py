@@ -177,8 +177,8 @@ def _register_routes(app):
         if user.is_blacklisted:
             return err("Sorry, Your account has been blacklisted. Please contact to placement cell.")
         
-        access_token = create_access_token(identity=user.id)
-        refresh_token = create_refresh_token(identity=user.id)
+        access_token = create_access_token(identity=str(user.id))
+        refresh_token = create_refresh_token(identity=str(user.id))
 
         profile = None
         if user.is_student() and user.student_profile:
@@ -1020,6 +1020,37 @@ def _register_routes(app):
         student.resume_filename = filename
         db.session.commit()
         return ok({'resume_filename': filename}, 'Resume uploaded.')
+    
+    @app.route('/api/student/applications', methods=['GET'])
+    @student_required
+    def student_get_applications():
+        user_id = get_jwt_identity()
+        student = Student.query.filter_by(user_id=user_id).first()
+        status = request.args.get('status', '').strip()
+
+        query = Application.query.filter_by(student_id=student.id)
+        if status:
+            query = query.filter(Application.status == status)
+
+        apps = query.order_by(Application.applied_at.desc()).all()
+        return ok({
+            'applications': [a.to_dict() for a in apps],
+            'app_statuses': AppStatus.ALL
+        })
+
+
+    @app.route('/api/student/history', methods=['GET'])
+    @student_required
+    def student_history():
+        user_id = get_jwt_identity()
+        student = Student.query.filter_by(user_id=user_id).first()
+
+        history = Application.query.filter(
+            Application.student_id == student.id,
+            Application.status.in_([AppStatus.Selected_app, AppStatus.Rejected_app])
+        ).order_by(Application.updated_at.desc()).all()
+
+        return ok([a.to_dict() for a in history])
 
 
 app = create_app()

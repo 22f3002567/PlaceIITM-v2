@@ -1,11 +1,11 @@
 const { reactive } = Vue;
 
-//Auth State 
+//Auth State
 
 const _storedUser = localStorage.getItem('user');
 
 const authState = reactive({
-    user: _storedUser ? JSON.parse(_storedUser) : null,
+    user:  _storedUser ? JSON.parse(_storedUser) : null,
     isLoggedIn: !!localStorage.getItem('access_token'),
     loading: false
 });
@@ -32,23 +32,19 @@ const Auth = {
     get role() { 
         return authState.user?.role || null;
     },
-
     get isAdmin() {
         return authState.user?.role === 'admin'; 
     },
-
-    get isCompany() { 
+    get isCompany() {   
         return authState.user?.role === 'company'; 
     },
-
-
-    get isStudent() {
+    get isStudent(){ 
         return authState.user?.role === 'student'; 
     },
 };
 
 
-// Toast Notification System
+//Toast Notification System 
 
 const toastState = reactive({ toasts: [] });
 let _toastId = 0;

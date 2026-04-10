@@ -134,9 +134,7 @@ const routes = [
 const router = createRouter({
     history: createWebHashHistory(),
     routes,
-    scrollBehavior() {
-        return { top: 0 };
-    }
+    scrollBehavior: () => ({ top: 0 })
 });
 
 

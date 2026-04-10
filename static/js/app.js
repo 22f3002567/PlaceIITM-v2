@@ -1,8 +1,9 @@
-const { createApp, defineComponent} = Vue;
+const { createApp, defineComponent, ref, computed, onMounted } = Vue;
 
+//Root App Component
+// Renders the Navbar, the router-view (current page), and the toast container.
 
 const App = defineComponent({
-
     name: 'PlaceIITM',
 
     template: `
@@ -27,7 +28,7 @@ const App = defineComponent({
                     class="ppa-toast"
                     :class="toast.type"
                 >
-                    <i :class="toastBg(toast.type)" style="margin-top:2px; flex-shrink:0;"></i>
+                    <i :class="toastIcon(toast.type)" style="margin-top:2px; flex-shrink:0;"></i>
                     <span style="flex:1;">{{ toast.message }}</span>
                     <button
                         @click="Store.Toast.remove(toast.id)"
@@ -40,19 +41,23 @@ const App = defineComponent({
 
     setup() {
         const { toastState } = Store;
-        function toastBg(type) {
-            const colors = {
-                success: 'background: #059669;',
-                error: 'background: #dc2626;',
-                warning: 'background: #d97706;',
-                info: 'background: #1a56db;'
+
+        function toastIcon(type) {
+            const icons = {
+                success: 'bi bi-check-circle-fill text-success',
+                error: 'bi bi-x-circle-fill text-danger',
+                warning: 'bi bi-exclamation-triangle-fill text-warning',
+                info: 'bi bi-info-circle-fill text-primary'
             };
-            return colors[type] || colors.info;
+            return icons[type] || icons.info;
         }
-        return { toastState, toastBg, Store };
+
+        return { toastState, toastIcon, Store };
     }
 });
 
+
+//Helper Components registered globally 
 
 // A spinner shown while data is loading
 const AppSpinner = defineComponent({
@@ -66,39 +71,31 @@ const AppSpinner = defineComponent({
     `
 });
 
+// Empty state placeholder
 const AppEmpty = defineComponent({
-
-    name: "AppEmpty",
+    name: 'AppEmpty',
     props: {
-        message: {
-            type: String,
-            default: "Nothing here yet, pleasee wait."
-        },
-        subtext: {
-            type: String,
-            default: "This page is under construction, please check back later."
-        },
+        icon: { type: String, default: 'bi-inbox' },
+        message: { type: String, default: 'Nothing here yet.' },
+        subtext: { type: String, default: '' }
     },
-    template:
-    `<div class="empty-state">
-        <p>{{ message }}</p>
-        <p v-if="subtext">{{ subtext }}</p>
-    </div>`
-    
+    template: `
+        <div class="ppa-empty">
+            <i :class="icon"></i>
+            <p class="mb-1 fw-600">{{ message }}</p>
+            <p v-if="subtext" class="small">{{ subtext }}</p>
+            <slot />
+        </div>
+    `
 });
 
+// Status badge (consistent across all views)
 const StatusBadge = defineComponent({
-
-    name: "StatusBadge",
-    props: {
-        status: {
-            type: String,
-            required: true
-        }
-    },
-    template:
-    `<span>[ {{ status }} ]</span>`,
-
+    name: 'StatusBadge',
+    props: { status: { type: String, required: true } },
+    template: `
+        <span class="ppa-badge" :class="badgeClass">{{ status }}</span>
+    `,
     computed: {
         badgeClass() {
             const map = {
@@ -108,16 +105,16 @@ const StatusBadge = defineComponent({
                 'closed': 'badge-closed',
                 'Applied': 'badge-applied',
                 'Shortlisted': 'badge-shortlisted',
-                'Interview':'badge-interview',
+                'Interview': 'badge-interview',
                 'Selected': 'badge-selected',
                 'Rejected': 'badge-rejected',
             };
             return map[this.status] || 'bg-secondary text-white';
         }
     }
-
 });
 
+// Confirmation modal (simple, reusable)
 const ConfirmModal = defineComponent({
     name: 'ConfirmModal',
     props: {
@@ -128,19 +125,30 @@ const ConfirmModal = defineComponent({
     },
     emits: ['confirm', 'cancel'],
     template: `
-        <div>
-            <h3>{{ title }}</h3>
-            <p>{{ message }}</p>
-
-            <button @click="$emit('cancel')">Cancel</button>
-            <button @click="$emit('confirm')">{{ confirmText }}</button>
+        <div class="modal fade show d-block" tabindex="-1" style="background:rgba(0,0,0,0.4);">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow">
+                    <div class="modal-header border-0 pb-0">
+                        <h5 class="modal-title fw-600">{{ title }}</h5>
+                    </div>
+                    <div class="modal-body pt-2">
+                        <p class="text-muted mb-0">{{ message }}</p>
+                    </div>
+                    <div class="modal-footer border-0">
+                        <button class="btn btn-light" @click="$emit('cancel')">Cancel</button>
+                        <button
+                            :class="danger ? 'btn btn-danger' : 'btn btn-primary'"
+                            @click="$emit('confirm')"
+                        >{{ confirmText }}</button>
+                    </div>
+                </div>
+            </div>
         </div>
     `
 });
 
 
-
-// Global utility function exposed to all components
+//Global utility function exposed to all components 
 
 // Format date strings nicely
 window.formatDate = (isoString) => {
@@ -160,21 +168,23 @@ window.daysLeftDisplay = (days) => {
 // Days left CSS class
 window.daysLeftClass = (days) => {
     if (days === null || days === undefined) return '';
-    if (days <= 1) return 'days-urgent';
-    if (days <= 3) return 'days-warning';
+    if (days <= 1)  return 'days-urgent';
+    if (days <= 3)  return 'days-warning';
     return 'days-normal';
 };
 
+
+// Create and mount the app 
 const app = createApp(App);
 
 app.use(AppRouter);
 
+// Register global components
 app.component('app-navbar', window.AppNavbar);
 app.component('app-spinner', AppSpinner);
 app.component('app-empty', AppEmpty);
 app.component('status-badge', StatusBadge);
 app.component('confirm-modal', ConfirmModal);
-
 
 app.mount('#app');
 

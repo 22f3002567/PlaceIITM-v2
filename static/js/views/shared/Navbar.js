@@ -1,55 +1,69 @@
+// shared/Navbar.js
+
 window.AppNavbar = {
     name: 'AppNavbar',
     template: `
-    <nav style="padding: 10px 20px; border-bottom: 1px solid #ccc; display: flex; align-items: center; justify-content: space-between;">
-
-        <div>
-            <router-link to="/" style="font-size: 1.2rem; font-weight: bold; text-decoration: none;">
-                PlaceIITM
+    <nav class="navbar navbar-expand-lg ppa-navbar">
+        <div class="container">
+            <router-link class="navbar-brand" to="/">
+                <i class="bi bi-mortarboard-fill me-2"></i>PlaceIITM
             </router-link>
-        </div>
 
-        <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
+            <button class="navbar-toggler border-0" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#navMain">
+                <span class="navbar-toggler-icon"></span>
+            </button>
 
-            <!-- Admin links -->
-            <template v-if="isAdmin">
-                <router-link to="/admin/dashboard">Dashboard</router-link>
-                <router-link to="/admin/companies">Companies</router-link>
-                <router-link to="/admin/students">Students</router-link>
-                <router-link to="/admin/drives">Drives</router-link>
-                <router-link to="/admin/applications">Applications</router-link>
-                <router-link to="/admin/reports">Reports</router-link>
-            </template>
+            <div class="collapse navbar-collapse" id="navMain">
+                <ul class="navbar-nav ms-auto align-items-center gap-1">
 
-            <!-- Company links -->
-            <template v-else-if="isCompany">
-                <router-link to="/company/dashboard">Dashboard</router-link>
-                <router-link to="/company/drives/new">Post Drive</router-link>
-                <router-link to="/company/profile">Profile</router-link>
-            </template>
+                    <!-- Admin links -->
+                    <template v-if="isAdmin">
+                        <li class="nav-item"><router-link class="nav-link" to="/admin/dashboard">Dashboard</router-link></li>
+                        <li class="nav-item"><router-link class="nav-link" to="/admin/companies">Companies</router-link></li>
+                        <li class="nav-item"><router-link class="nav-link" to="/admin/students">Students</router-link></li>
+                        <li class="nav-item"><router-link class="nav-link" to="/admin/drives">Drives</router-link></li>
+                        <li class="nav-item"><router-link class="nav-link" to="/admin/applications">Applications</router-link></li>
+                        <li class="nav-item"><router-link class="nav-link" to="/admin/reports">Reports</router-link></li>
+                    </template>
 
-            <!-- Student links -->
-            <template v-else-if="isStudent">
-                <router-link to="/student/dashboard">Dashboard</router-link>
-            </template>
+                    <!-- Company links -->
+                    <template v-else-if="isCompany">
+                        <li class="nav-item"><router-link class="nav-link" to="/company/dashboard">Dashboard</router-link></li>
+                        <li class="nav-item"><router-link class="nav-link" to="/company/drives/new">Post Drive</router-link></li>
+                        <li class="nav-item"><router-link class="nav-link" to="/company/profile">Profile</router-link></li>
+                    </template>
 
-            <!-- Guest links -->
-            <template v-else>
-                <router-link to="/login">Login</router-link>
-                <router-link to="/register/student">Register as Student</router-link>
-                <router-link to="/register/company">Register as Company</router-link>
-            </template>
+                    <!-- Student links -->
+                    <template v-else-if="isStudent">
+                        <li class="nav-item"><router-link class="nav-link" to="/student/dashboard">Dashboard</router-link></li>
+                        <li class="nav-item"><router-link class="nav-link" to="/student/drives">Browse Drives</router-link></li>
+                        <li class="nav-item"><router-link class="nav-link" to="/student/applications">Applications</router-link></li>
+                        <li class="nav-item"><router-link class="nav-link" to="/student/history">History</router-link></li>
+                        <li class="nav-item"><router-link class="nav-link" to="/student/profile">Profile</router-link></li>
+                    </template>
 
-            <!-- Logout -->
-            <span v-if="isLoggedIn">
-                | <button @click="logout" style="cursor: pointer;">Logout</button>
-            </span>
+                    <!-- Guest links -->
+                    <template v-else>
+                        <li class="nav-item"><router-link class="nav-link" to="/login">Login</router-link></li>
+                        <li class="nav-item"><router-link class="nav-link" to="/register/student">Register Student</router-link></li>
+                        <li class="nav-item"><router-link class="nav-link" to="/register/company">Register Company</router-link></li>
+                    </template>
 
+                    <!-- Logout (if logged in) -->
+                    <li v-if="isLoggedIn" class="nav-item ms-2">
+                        <button class="btn btn-outline-danger btn-sm" @click="logout">
+                            <i class="bi bi-box-arrow-right me-1"></i>Logout
+                        </button>
+                    </li>
+
+                </ul>
+            </div>
         </div>
     </nav>
     `,
     setup() {
-        const { computed } = Vue;
+        const { ref, computed } = Vue;
         const router = VueRouter.useRouter();
 
         const isLoggedIn = computed(() => Store.Auth.state.isLoggedIn);
@@ -59,7 +73,7 @@ window.AppNavbar = {
 
         function logout() {
             Store.Auth.logout();
-            Store.Toast.info('Logged out successfully.');
+            Store.Toast.info('You have been logged out. See you soon!');
             router.push('/login');
         }
 
@@ -67,14 +81,20 @@ window.AppNavbar = {
     }
 };
 
+//shared/NotFound.js
 
 window.NotFoundPage = {
     name: 'NotFoundPage',
     template: `
-    <div style="padding: 40px; text-align: center;">
-        <h1>404 - Page Not Found</h1>
-        <p>The page you are looking for does not exist.</p>
-        <router-link to="/">Go Home</router-link>
+    <div class="container text-center py-5 mt-5">
+        <div style="font-size:5rem; opacity:0.12;" class="mb-3">
+            <i class="bi bi-compass"></i>
+        </div>
+        <h1 class="fw-700 mb-2" style="font-size:2rem;">404 — Page Not Found</h1>
+        <p class="text-muted mb-4">The page you are looking for doesn't exist or has moved.</p>
+        <router-link to="/" class="btn btn-primary">
+            <i class="bi bi-house me-1"></i>Go Home
+        </router-link>
     </div>
     `
 };

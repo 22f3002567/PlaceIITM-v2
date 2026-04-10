@@ -1,4 +1,3 @@
-
 const API_BASE = '/api';
 
 const api = axios.create({
@@ -7,8 +6,7 @@ const api = axios.create({
     timeout: 15000
 });
 
-
-//Request interceptor to attach access token to every request 
+//Request interceptor - attach access token
 api.interceptors.request.use(config => {
     const token = localStorage.getItem('access_token');
     if (token) {
@@ -18,9 +16,9 @@ api.interceptors.request.use(config => {
 }, error => Promise.reject(error));
 
 
-//Response interceptor for  handle 401, and auto-refresh token 
+//Response interceptor;- handle 401, auto-refresh
 let _isRefreshing = false;
-let _refreshQueue = [];
+let _refreshQueue = [];   // callbacks waiting for the new token
 
 const processQueue = (error, token = null) => {
     _refreshQueue.forEach(cb => error ? cb.reject(error) : cb.resolve(token));
@@ -36,7 +34,7 @@ api.interceptors.response.use(
             const refreshToken = localStorage.getItem('refresh_token');
 
             if (!refreshToken) {
-                // No refresh token force logout
+                // No refresh token --> force logout
                 _clearTokens();
                 window.location.hash = '#/login';
                 return Promise.reject(error);
@@ -87,7 +85,8 @@ function _clearTokens() {
 }
 
 
-// All API methods which is organized by roless 
+//Exported API methods (organized by role) 
+
 window.API = {
 
     // Auth
@@ -104,30 +103,30 @@ window.API = {
         dashboard: () => api.get('/admin/dashboard'),
         lookups: () => api.get('/admin/lookups'),
 
-        getCompanies: (params) => api.get('/admin/companies',              { params }),
+        getCompanies: (params) => api.get('/admin/companies', { params }),
         approveCompany: (id) => api.post(`/admin/companies/${id}/approve`),
         rejectCompany: (id) => api.post(`/admin/companies/${id}/reject`),
         blacklistCompany: (id) => api.post(`/admin/companies/${id}/blacklist`),
         deleteCompany: (id) => api.delete(`/admin/companies/${id}`),
-        editCompany:(id, data) => api.put(`/admin/companies/${id}`, data),
+        editCompany: (id, data) => api.put(`/admin/companies/${id}`, data),
 
-        getStudents: (params) => api.get('/admin/students',               { params }),
+        getStudents: (params) => api.get('/admin/students', { params }),
         editStudent: (id, data) => api.put(`/admin/students/${id}`, data),
-        blacklistStudent: (id) => api.post(`/admin/students/${id}/blacklist`),
+        blacklistStudent:(id) => api.post(`/admin/students/${id}/blacklist`),
         deleteStudent: (id) => api.delete(`/admin/students/${id}`),
 
-        getDrives: (params) => api.get('/admin/drives',                 { params }),
+        getDrives: (params) => api.get('/admin/drives', { params }),
         approveDrive: (id) => api.post(`/admin/drives/${id}/approve`),
         rejectDrive: (id) => api.post(`/admin/drives/${id}/reject`),
         closeDrive: (id) => api.post(`/admin/drives/${id}/close`),
 
-        getApplications: (params) => api.get('/admin/applications',           { params }),
+        getApplications: (params) => api.get('/admin/applications', { params }),
         getStats: () => api.get('/admin/stats'),
     },
 
     // Company
     company: {
-        dashboard:() => api.get('/company/dashboard'),
+        dashboard: () => api.get('/company/dashboard'),
         lookups: () => api.get('/company/lookups'),
 
         getProfile: () => api.get('/company/profile'),
@@ -138,30 +137,32 @@ window.API = {
         closeDrive: (id) => api.post(`/company/drives/${id}/close`),
         deleteDrive: (id) => api.delete(`/company/drives/${id}`),
 
-        getDriveApplicants: (id, p) => api.get(`/company/drives/${id}/applications`, { params: p }),
+        getDriveApplicants: (id, params) => api.get(`/company/drives/${id}/applications`, { params }),
         updateApplication: (id, data) => api.put(`/company/applications/${id}`, data),
     },
 
     // Student
     student: {
-        dashboard:() => api.get('/student/dashboard'),
+        dashboard: () => api.get('/student/dashboard'),
         lookups: () => api.get('/student/lookups'),
 
         getDrives: (params) => api.get('/student/drives', { params }),
         applyToDrive: (id) => api.post(`/student/drives/${id}/apply`),
 
         getApplications: (params) => api.get('/student/applications', { params }),
-        getHistory:() => api.get('/student/history'),
+        getHistory: () => api.get('/student/history'),
 
-        getProfile:() => api.get('/student/profile'),
+        getProfile: () => api.get('/student/profile'),
         updateProfile: (data) => api.put('/student/profile', data),
-        uploadResume: (formData)  => api.post('/student/profile/resume', formData, {
+        uploadResume: (formData) => api.post('/student/profile/resume', formData, {
                                             headers: { 'Content-Type': 'multipart/form-data' }
                                         }),
 
         triggerExport: () => api.post('/student/export'),
-        exportStatus: (jobId)  => api.get(`/student/export/${jobId}`),
+        exportStatus: (jobId) => api.get(`/student/export/${jobId}`),
     },
 
-    
+    // File URLs
+    resumeUrl: (filename) => `/api/resumes/${filename}`,
+    exportUrl: (filename) => `/api/exports/${filename}`
 };
