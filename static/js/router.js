@@ -67,6 +67,34 @@ const routes = [
 
     },
 
+    { 
+        path: '/company/profile',                     
+        component: window.CompanyProfile,        
+        meta: { requiresAuth: true, role: 'company' } 
+    },
+    { 
+        path: '/company/drives',                      
+        component: window.CompanyDriveList,      
+        meta: { requiresAuth: true, role: 'company' } 
+    },
+    { 
+        path: '/company/drives/new',                  
+        component: window.CompanyDriveForm,      
+        meta: { requiresAuth: true, role: 'company' } 
+    },
+    { 
+        path: '/company/drives/:id/edit',             
+        component: window.CompanyDriveForm,      
+        meta: { requiresAuth: true, role: 'company' } 
+    },
+
+    { 
+        path: '/company/drives/:id/applicants',       
+        component: window.CompanyDriveApplicants,
+        meta: { requiresAuth: true, role: 'company' } 
+    },
+
+
     {
         path: '/student/dashboard',
         component: window.StudentDashboard,

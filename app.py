@@ -631,11 +631,306 @@ def _register_routes(app):
             'dept_stats': dept_list
         })
 
+    
+    @app.route('/api/company/dashboard', methods=['GET'])
+    @company_required
+    def company_dashboard():
+        user_id = get_jwt_identity()
+        co = Company.query.filter_by(user_id=user_id).first()
+        if not co:
+            return err('Company profile not found.', 404)
 
+        drives = PlacementDrive.query.filter_by(company_id=co.id)\
+                                      .order_by(PlacementDrive.created_at.desc()).all()
+        total_apps = sum(len(d.applications) for d in drives)
+        active_drives = sum(1 for d in drives if d.status == DriveStatus.Approved_status)
+        pending_drives = sum(1 for d in drives if d.status == DriveStatus.Pending_status)
+        total_selected = Application.query.join(PlacementDrive)\
+                                         .filter(PlacementDrive.company_id == co.id,
+                                                 Application.status == AppStatus.Selected_app).count()
+
+        return ok({
+            'company': co.to_dict(),
+            'stats': {
+                'total_drives': len(drives),
+                'active_drives': active_drives,
+                'pending_drives': pending_drives,
+                'total_apps': total_apps,
+                'total_selected': total_selected
+            },
+            'drives': [d.to_dict() for d in drives]
+        })
+
+
+    @app.route('/api/company/profile', methods=['GET'])
+    @company_required
+    def company_get_profile():
+        user_id = get_jwt_identity()
+        co = Company.query.filter_by(user_id=user_id).first()
+        if not co:
+            return err('Company profile not found.', 404)
+        return ok(co.to_dict())
+
+
+    @app.route('/api/company/profile', methods=['PUT'])
+    @company_required
+    def company_update_profile():
+        user_id = get_jwt_identity()
+        co = Company.query.filter_by(user_id=user_id).first()
+        if not co:
+            return err('Company profile not found.', 404)
+        
+        body = request.get_json() or {}
+
+        co.industry = body.get('industry', co.industry)
+        co.hr_name = body.get('hr_name', co.hr_name)
+        co.hr_contact = body.get('hr_contact', co.hr_contact)
+        co.website = body.get('website', co.website)
+        co.description = body.get('description', co.description)
+        co.location = body.get('location', co.location)
+        db.session.commit()
+        return ok(co.to_dict(), 'Profile updated.')
+
+
+    @app.route('/api/company/drives', methods=['POST'])
+    @company_required
+    def company_create_drive():
+        from datetime import datetime, date
+        user_id = get_jwt_identity()
+        co = Company.query.filter_by(user_id=user_id).first()
+
+        if not co or not co.is_approved():
+            return err('Your company must be approved before posting drives.')
+
+        body = request.get_json() or {}
+        job_title = body.get('job_title', '').strip()
+        desc = body.get('job_description', '').strip()
+        deadline_str = body.get('application_deadline', '').strip()
+
+        if not job_title:
+            return err('Job title is required.')
+        if not desc:
+            return err('Job description is required.')
+        if not deadline_str:
+            return err('Application deadline is required.')
+
+        try:
+            deadline = datetime.strptime(deadline_str, '%Y-%m-%d').date()
+            if deadline < date.today():
+                return err('Deadline cannot be in the past.')
+        except ValueError:
+            return err('Invalid date format. Use YYYY-MM-DD.')
+
+        drive = PlacementDrive(
+            company_id = co.id,
+            job_title = job_title,
+            job_description = desc,
+            job_type = body.get('job_type', '').strip() or None,
+            eligible_branches = body.get('eligible_branches', '').strip() or None,
+            eligible_degree = body.get('eligible_degrees', '').strip() or None,
+            min_cgpa = safe_float(body.get('min_cgpa'), 0.0, 10.0) or 0.0,
+            required_skills = body.get('required_skills', '').strip() or None,
+            salary_range = body.get('salary_range', '').strip() or None,
+            location = body.get('location', '').strip() or None,
+            application_deadline = deadline,
+            status = DriveStatus.Pending_status
+        )
+        db.session.add(drive)
+        db.session.commit()
+        return ok(drive.to_dict(), 'Drive submitted for admin approval.', 201)
+
+
+    @app.route('/api/company/drives/<int:drive_id>', methods=['PUT'])
+    @company_required
+    def company_edit_drive(drive_id):
+        from datetime import datetime
+        user_id = get_jwt_identity()
+        co = Company.query.filter_by(user_id=user_id).first()
+        drive = PlacementDrive.query.filter_by(id=drive_id, company_id=co.id).first_or_404()
+
+        if drive.status not in (DriveStatus.PENDING, DriveStatus.REJECTED):
+            return err('Only pending or rejected drives can be edited.')
+
+        body = request.get_json() or {}
+        deadline_str = body.get('application_deadline', '').strip()
+
+        if deadline_str:
+            try:
+                drive.application_deadline = datetime.strptime(deadline_str, '%Y-%m-%d').date()
+            except ValueError:
+                return err('Invalid date format.')
+
+        drive.job_title = body.get('job_title', drive.job_title).strip()
+        drive.job_description = body.get('job_description', drive.job_description)
+        drive.job_type = body.get('job_type', drive.job_type)
+        drive.eligible_branches = body.get('eligible_branches', drive.eligible_branches)
+        drive.eligible_degrees = body.get('eligible_degrees',  drive.eligible_degrees)
+        drive.min_cgpa = safe_float(body.get('min_cgpa'), 0.0, 10.0) or drive.min_cgpa
+        drive.required_skills = body.get('required_skills', drive.required_skills)
+        drive.salary_range = body.get('salary_range', drive.salary_range)
+        drive.location  = body.get('location', drive.location)
+        drive.status = DriveStatus.Pending_status
+        db.session.commit()
+        return ok(drive.to_dict(), 'Drive updated and re-submitted for approval.')
+
+
+    @app.route('/api/company/drives/<int:drive_id>/close', methods=['POST'])
+    @company_required
+    def company_close_drive(drive_id):
+        user_id = get_jwt_identity()
+        co  = Company.query.filter_by(user_id=user_id).first()
+        drive = PlacementDrive.query.filter_by(id=drive_id, company_id=co.id).first_or_404()
+        drive.status = DriveStatus.Closed_status
+        db.session.commit()
+        return ok(message=f"'{drive.job_title}' closed.")
+
+
+    @app.route('/api/company/drives/<int:drive_id>', methods=['DELETE'])
+    @company_required
+    def company_delete_drive(drive_id):
+        user_id = get_jwt_identity()
+        co = Company.query.filter_by(user_id=user_id).first()
+        drive = PlacementDrive.query.filter_by(id=drive_id, company_id=co.id).first_or_404()
+
+        if drive.status == DriveStatus.Approved_status:
+            return err('Approved drives cannot be deleted. Close it first.')
+
+        title = drive.job_title
+        db.session.delete(drive)
+        db.session.commit()
+        return ok(message=f"'{title}' deleted.")
+
+
+    @app.route('/api/company/drives/<int:drive_id>/applications', methods=['GET'])
+    @company_required
+    def company_drive_applications(drive_id):
+        user_id = get_jwt_identity()
+        co = Company.query.filter_by(user_id=user_id).first()
+        drive = PlacementDrive.query.filter_by(id=drive_id, company_id=co.id).first_or_404()
+        status = request.args.get('status', '').strip()
+
+        query = Application.query.filter_by(drive_id=drive_id)
+        if status:
+            query = query.filter(Application.status == status)
+
+        apps = query.order_by(Application.applied_at.desc()).all()
+        return ok({
+            'drive': drive.to_dict(),
+            'applications': [a.to_dict() for a in apps],
+            'app_statuses': AppStatus.ALL
+        })
+
+
+    @app.route('/api/company/applications/<int:app_id>', methods=['PUT'])
+    @company_required
+    def company_update_application(app_id):
+        from datetime import datetime
+        user_id = get_jwt_identity()
+        co = Company.query.filter_by(user_id=user_id).first()
+        app_obj = Application.query.get_or_404(app_id)
+
+        if app_obj.drive.company_id != co.id:
+            return err('Access denied.', 403)
+
+        body = request.get_json() or {}
+        status = body.get('status', app_obj.status)
+
+        if status not in AppStatus.ALL:
+            return err(f"Invalid status.")
+
+        app_obj.status = status
+        app_obj.notes = body.get('notes', app_obj.notes)
+
+        interview_date_str = body.get('interview_date', '').strip()
+        if interview_date_str:
+            try:
+                app_obj.interview_date = datetime.strptime(interview_date_str, '%Y-%m-%dT%H:%M')
+            except ValueError:
+                return err('Invalid interview date. Use YYYY-MM-DDTHH:MM.')
+
+        app_obj.interview_mode = body.get('interview_mode', app_obj.interview_mode)
+        app_obj.interview_location = body.get('interview_location', app_obj.interview_location)
+
+        db.session.commit()
+        return ok(app_obj.to_dict(), 'Application updated.')
+
+
+    @app.route('/api/company/lookups', methods=['GET'])
+    @company_required
+    def company_lookups():
+        return ok({
+            'job_types': JOB_TYPES,
+            'departments': DEPARTMENTS,
+            'degrees': DEGREES,
+            'industries': INDUSTRIES,
+            'app_statuses': AppStatus.ALL
+        })
 
     @app.route('/api/student/dashboard', methods=['GET'])
+    @student_required
     def student_dashboard():
-        return jsonify({"message": "Student dashboard accessed successfully"}), 200
+        user_id = get_jwt_identity()
+        student = Student.query.filter_by(user_id=user_id).first()
+        if not student:
+            return err('Student profile not found.', 404)
+
+        today = date.today()
+
+        # IDs of drives already applied to
+        applied_ids = {a.drive_id for a in student.applications}
+
+        # Open drives not yet applied to
+        open_drives_query = PlacementDrive.query.filter(
+            PlacementDrive.status == DriveStatus.Approved_status,
+            PlacementDrive.application_deadline >= today
+        )
+        if applied_ids:
+            open_drives_query = open_drives_query.filter(
+                PlacementDrive.id.notin_(applied_ids)
+            )
+        available_drives = open_drives_query.order_by(
+            PlacementDrive.application_deadline.asc()
+        ).all()
+
+        recent_apps = (Application.query.filter_by(student_id=student.id)
+                       .order_by(Application.applied_at.desc()).limit(5).all())
+
+        return ok({
+            'student': student.to_dict(),
+            'stats': {
+                'total_apps': Application.query.filter_by(student_id=student.id).count(),
+                'applied_count': Application.query.filter_by(student_id=student.id, status=AppStatus.Applied_app).count(),
+                'shortlisted': Application.query.filter_by(student_id=student.id, status=AppStatus.Shortlisted_app).count(),
+                'interviews': Application.query.filter_by(student_id=student.id, status=AppStatus.Interview_app).count(),
+                'selected': Application.query.filter_by(student_id=student.id, status=AppStatus.Selected_app).count(),
+                'available_drives': len(available_drives)
+            },
+            'available_drives': [d.to_dict() for d in available_drives[:5]],
+            'recent_apps': [a.to_dict() for a in recent_apps],
+            'applied_ids': list(applied_ids)
+        })
+
+
+    @app.route('/api/student/drives', methods=['GET'])
+    @student_required
+    def student_browse_drives():
+        today = date.today()
+        search = request.args.get('search', '').strip()
+
+        query = PlacementDrive.query.join(Company).filter(
+            PlacementDrive.status == DriveStatus.Approved_status,
+            PlacementDrive.application_deadline >= today
+        )
+        if search:
+            query = query.filter(or_(
+                PlacementDrive.job_title.ilike(f'%{search}%'),
+                Company.company_name.ilike(f'%{search}%'),
+                PlacementDrive.required_skills.ilike(f'%{search}%'),
+                PlacementDrive.location.ilike(f'%{search}%')
+            ))
+
+        drives = query.order_by(PlacementDrive.application_deadline.asc()).all()
+        return ok([d.to_dict() for d in drives])
 
 app = create_app()
 
