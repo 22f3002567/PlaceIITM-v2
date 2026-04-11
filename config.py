@@ -21,6 +21,12 @@ class Config:
     JWT_HEADER_NAME = 'Authorization'
     JWT_HEADER_TYPE = 'Bearer'
 
+
+    REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+    CACHE_TYPE = 'RedisCache'
+    CACHE_REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+    CACHE_DEFAULT_TIMEOUT = 300  # 5 minutes
+
     CELERY_BROKER_URL    = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
     CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 

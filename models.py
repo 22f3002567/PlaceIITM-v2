@@ -23,18 +23,18 @@ class DriveStatus:
     Closed_status = 'closed'
 
 class AppStatus:
-    Applied_app     = 'Applied'
+    Applied_app = 'Applied'
     Shortlisted_app = 'Shortlisted'
-    Interview_app   = 'Interview'
-    Selected_app    = 'Selected'
-    Rejected_app    = 'Rejected'
-    ALL         = [Applied_app, Shortlisted_app, Interview_app, Selected_app, Rejected_app]
+    Interview_app = 'Interview'
+    Selected_app = 'Selected'
+    Rejected_app = 'Rejected'
+    ALL = [Applied_app, Shortlisted_app, Interview_app, Selected_app, Rejected_app]
 
 class ExportStatus:
-    Pending_status    = 'pending'
+    Pending_status = 'pending'
     Processing_status = 'processing'
-    Done       = 'done'
-    Failed    = 'failed'
+    Done = 'done'
+    Failed = 'failed'
 
 
 class User(db.Model):

@@ -2,6 +2,10 @@
 from flask import Flask, jsonify, request, render_template, redirect, url_for, send_from_directory
 
 import os
+import csv 
+from datetime import date, datetime
+from functools import wraps
+
 from werkzeug.security import generate_password_hash 
 
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
@@ -9,15 +13,13 @@ from sqlalchemy import or_
 
 
 from config import Config
-from extensions import db, jwt, cors, celery, mail
+from extensions import db, jwt, cors, celery, mail, cache
 
 from models import (db, User, Student, Company, PlacementDrive, Application, ExportJob,
                     Role, CompanyStatus, DriveStatus, AppStatus, ExportStatus,
                     DEPARTMENTS, DEGREES, INDUSTRIES, JOB_TYPES
                     )
 
-from functools import wraps
-from datetime import date, datetime
 
 def create_app():
     app = Flask(
@@ -27,11 +29,13 @@ def create_app():
     )
     app.config.from_object(Config)
 
-    # os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    # os.makedirs(app.config['EXPORT_FOLDER'], exist_ok=True)
+    # it makes sure that upload and export folders exist
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    os.makedirs(app.config['EXPORT_FOLDER'], exist_ok=True)
 
     db.init_app(app)
     jwt.init_app(app)
+    cache.init_app(app)
     mail.init_app(app)
     cors.init_app(app, resources={r"/api/*": {"origins": "*"}})
 
@@ -78,12 +82,12 @@ def _seed_admin(app):
             username='siddharth_admin',
             email=app.config.get('ADMIN_EMAIL', 'siddharth@placeiitm.ac.in'),
             role=Role.Admin_role,
-            is_active = True
+            is_active=True
         )
         admin.set_password('Siddharth@300')
         db.session.add(admin)
         db.session.commit()
-        print(f"\n Admin seeded successfully {admin.email}/ Siddharth@300 \n")
+        print(f"\n Hurraaayyy.. Admin seeded successfully {admin.email}/ Siddharth@300 \n")
     else:
         print("\n Admin account already exists. Skipping seeding. \n")
 
@@ -101,17 +105,23 @@ def err(message='Someting Went Wrong', status=400):
 
     return jsonify({'success': False, 'data': None, 'message': message}), status
 
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in Config.ALLOWED_EXTENSIONS
+
+
+
 def safe_float(value, min_val=0.0, max_val=10.0):
     try:
         v = float(value)
         return v if min_val <= v <= max_val else None
-    except:
+    except (ValueError, TypeError):
         return None
     
 def safe_int(value):
     try:
         return int(value)
-    except:
+    except (ValueError, TypeError):
         return None
 
 
@@ -169,7 +179,17 @@ def _register_routes(app):
             from flask import abort
             abort(404)
         return render_template('index.html')
+    
 
+    @app.route('/api/resumes/<path:filename>')
+    @jwt_required()
+    def serve_resume(filename):
+        return send_from_directory(Config.UPLOAD_FOLDER, filename)
+
+    @app.route('/api/exports/<path:filename>')
+    @jwt_required()
+    def serve_export(filename):
+        return send_from_directory(Config.EXPORT_FOLDER, filename)
 
 
 
@@ -198,7 +218,7 @@ def _register_routes(app):
             return err(f"You selected '{role}'. but your account is registered as '{user.role}'.")
         
         if not user.is_active:
-            return err("You account is deactivated sir")
+            return err("You account is deactivated sir.. Please Contact the Placement cell.")
 
         if user.is_blacklisted:
             return err("Sorry, Your account has been blacklisted. Please contact to placement cell.")
@@ -233,8 +253,10 @@ def _register_routes(app):
 
     @app.route('/api/auth/refresh', methods=['POST'])
     @jwt_required(refresh=True)
-    def refresh():      
-        return ok({"access_token": create_access_token(identity=get_jwt_identity())}, "Token refreshed successfully")
+    def refresh():
+        user_id = get_jwt_identity()
+        access_token = create_access_token(identity=user_id)      
+        return ok({"access_token": access_token}, "Token refreshed successfully...")
             
 
     @app.route('/api/auth/me', methods=['GET'])
@@ -253,34 +275,36 @@ def _register_routes(app):
     @app.route('/api/auth/register/student', methods=['POST'])
     def register_student():
         body = request.get_json() or {}
+
         print("RAW BODY:", body)
         print("TYPE:", type(body))
 
         username = body.get('username', '').strip()
         email = body.get('email', '').strip().lower()
-        passwd = body.get('password', '').strip()
+        passwd = body.get('password', '')
         stu_name = body.get('stu_name', '').strip()
         roll_no = body.get('roll_no', '').strip()
         phone = body.get('phone', '').strip()
 
         if not all([username, email, passwd, stu_name, roll_no]):
-            print("FAILED AT: all field required")
+            # print("FAILED AT: all field required")
+
             return err('oHH-HOO, Username, email, password, full name and roll number are required.')
         
         if len(passwd) < 6:
-            print("FAILED AT: passawar length")
+            #print("FAILED AT: passawar length")
             return err('Password must be at least 6 characters long.')
         
         if User.query.filter_by(email=email).first():
-            print("FAILED AT: email")
+            #print("FAILED AT: email")
             return err('Email already registered.')
         
         if User.query.filter_by(username=username).first():
-            print("FAILED AT: username")
+            #print("FAILED AT: username")
             return err('Username already taken.')
         
         if Student.query.filter_by(roll_no=roll_no).first():
-            print("FAILED AT: rollno")
+            #print("FAILED AT: rollno")
             return err('Ohh, A student with this roll number is already registered.')
         
         user = User(
@@ -302,7 +326,8 @@ def _register_routes(app):
             degree=body.get('degree', '').strip() or None,
             grad_year=body.get('graduation_year', '') or None,
             
-            cgpa= float(body.get('cgpa', '') or None),
+            #cgpa= float(body.get('cgpa', '') or None),
+            cgpa = safe_float(body.get('cgpa')),
             skills=body.get('skills', '').strip() or None
         )
         db.session.add(student)
@@ -357,13 +382,24 @@ def _register_routes(app):
 
         return ok(message="Company registration successful!! Please wait for admin approval befor posting any drives", status=201)
 
+
+
+
     @app.route('/api/student/lookups', methods=['GET'])
     def student_lookups():
-        return ok({'departments': DEPARTMENTS, 'degrees': DEGREES, 'app_statuses': AppStatus.ALL})
+        return ok({
+            'departments': DEPARTMENTS, 
+            'degrees': DEGREES, 
+            'app_statuses': AppStatus.ALL
+        })
+
+
+
 
 
     @app.route('/api/admin/dashboard', methods=['GET'])
     @admin_required
+    @cache.cached(timeout=120, key_prefix='admin_dashboard')
     def admin_dashboard():
         total_students = Student.query.count()
         total_companies = Company.query.count()
@@ -392,7 +428,7 @@ def _register_routes(app):
             },
             "recent_apps": [a.to_dict() for a in recent_apps],
             "recent_companies": [c.to_dict() for c in recent_companies]
-        }, "Admin dashboard data fetched successfully"), 200
+        }, "Admin dashboard data fetched successfully")
 
     @app.route('/api/admin/companies', methods=['GET'])
     @admin_required
@@ -425,6 +461,8 @@ def _register_routes(app):
         co.approval_status = CompanyStatus.Approved_status
         db.session.commit()
 
+        cache.delete('admin_dashboard')
+
         return ok(message=f"'{co.company_name}' hass been approved..")
     
     
@@ -434,8 +472,14 @@ def _register_routes(app):
         co = Company.query.get_or_404(co_id)
         co.approval_status = CompanyStatus.Rejected_status
         db.session.commit()
+
+        cache.delete('admin_dashboard')
+
         return ok(message=f"'{co.company_name}' has been rejectedd...")
     
+
+
+
     @app.route('/api/admin/companies/<int:co_id>/blacklist', methods=['POST'])
     @admin_required
     def admin_toggle_company_blacklist(co_id):
@@ -445,6 +489,8 @@ def _register_routes(app):
         action = 'blacklisted' if co.user.is_blacklisted else "unblacklisted"
         return ok(message=f"'{co.company_name}' has been {action}...")
     
+
+
     @app.route('/api/admin/companies/<int:co_id>', methods=['DELETE'])
     @admin_required
     def admin_delete_company(co_id):
@@ -452,11 +498,15 @@ def _register_routes(app):
         name = co.company_name
         db.session.delete(co.user)
         db.session.commit()
-        return ok(message=f"'{name}' deleted..")
+        cache.delete('admin_dashboard')
+        return ok(message=f"'{name}' and all associated data have been  deleted..")
     
+
+
     @app.route('/api/admin/companies/<int:co_id>', methods=['PUT'])
     @admin_required
     def admin_edit_company(co_id):
+
         co = Company.query.get_or_404(co_id)
         body = request.get_json() or {}
 
@@ -464,10 +514,11 @@ def _register_routes(app):
         co.industry = body.get('industry', co.industry)
         co.hr_name = body.get('hr_name', co.hr_name)
         co.hr_contact = body.get('hr_contact', co.hr_contact)
-        co.website = body.get('description', co.description)
+        co.website = body.get('website', co.description)
+        co.description = body.get('description', co.description)
         co.location = body.get('location', co.location)
         db.session.commit()
-        return ok(co.to_dict(), f"'{co.company_name}' updated..")
+        return ok(co.to_dict(), f"'{co.company_name}' updated successfully..")
     
 
     @app.route("/api/admin/students", methods=['GET'])
@@ -492,8 +543,8 @@ def _register_routes(app):
         if grad_yr:
             query = query.filter(Student.grad_year == safe_int(grad_yr))
 
-        students = query.order_by(Student.grad_year == safe_int(grad_yr))
-
+        #students = query.order_by(Student.grad_year == safe_int(grad_yr))
+        students = query.order_by(Student.registered_at.desc()).all()
         return ok([s.to_dict() for s in students])
     
 
@@ -511,7 +562,7 @@ def _register_routes(app):
         stu.skills = body.get('skills', stu.skills)
         stu.roll_no  = body.get('roll_no', stu.roll_no)
         db.session.commit()
-        return ok(stu.to_dict(), f"'{stu.stu_name}' updated.")
+        return ok(stu.to_dict(), f"'{stu.stu_name}' updated succesfully..")
 
 
     @app.route('/api/admin/students/<int:stu_id>/blacklist', methods=['POST'])
@@ -531,7 +582,8 @@ def _register_routes(app):
         name = stu.stu_name
         db.session.delete(stu.user)
         db.session.commit()
-        return ok(message=f"'{name}' deleted.")
+        cache.delete('admin_dashboard')
+        return ok(message=f"'{name}' and all associated data have deleted.")
 
 
     @app.route('/api/admin/drives', methods=['GET'])
@@ -559,7 +611,9 @@ def _register_routes(app):
         drive = PlacementDrive.query.get_or_404(drive_id)
         drive.status = DriveStatus.Approved_status
         db.session.commit()
-        return ok(message=f"Drive '{drive.job_title}' approved.")
+        cache.delete('admin_dashboard')
+        cache.delete('open_drives')
+        return ok(message=f"Drive '{drive.job_title}' approved. Studentss can apply now")
 
 
     @app.route('/api/admin/drives/<int:drive_id>/reject', methods=['POST'])
@@ -568,15 +622,17 @@ def _register_routes(app):
         drive = PlacementDrive.query.get_or_404(drive_id)
         drive.status = DriveStatus.Rejected_status
         db.session.commit()
-        return ok(message=f"Drive '{drive.job_title}' rejected.")
+        cache.delete('open_drives')
+        return ok(message=f"Drive '{drive.job_title}' has been rejected.")
 
 
     @app.route('/api/admin/drives/<int:drive_id>/close', methods=['POST'])
     @admin_required
     def admin_close_drive(drive_id):
         drive = PlacementDrive.query.get_or_404(drive_id)
-        drive.status = DriveStatus.CLOSED
+        drive.status = DriveStatus.Closed_status
         db.session.commit()
+        cache.delete('open_drives')
         return ok(message=f"Drive '{drive.job_title}' closed.")
 
 
@@ -622,11 +678,22 @@ def _register_routes(app):
         companies = Company.query.filter_by(approval_status=CompanyStatus.Approved_status).all()
         company_data = []
         for co in companies:
-            total    = sum(len(d.applications) for d in co.drives)
-            selected = sum(1 for d in co.drives for a in d.applications if a.status == AppStatus.Selected_app)
+            total = sum(len(d.applications) for d in co.drives)
+            selected = sum(
+                1 for d in co.drives 
+                for a in d.applications 
+                if a.status == AppStatus.Selected_app
+            )
+
             if co.drives:
-                company_data.append({'name': co.company_name, 'drives': len(co.drives),
-                                     'apps': total, 'selected': selected})
+                company_data.append({
+                    'name': co.company_name, 
+                    'drives': len(co.drives),
+                    'apps': total, 
+                    'selected': selected
+                })
+
+
         company_data.sort(key=lambda x: x['apps'], reverse=True)
 
         students  = Student.query.all()
@@ -636,12 +703,22 @@ def _register_routes(app):
             if dept not in dept_stats:
                 dept_stats[dept] = {'total': 0, 'selected': 0}
             dept_stats[dept]['total'] += 1
-            if any(a.status == AppStatus.Selected_app for a in stu.applications):
+
+            selected_count = sum(1 for a in stu.applications if a.status == AppStatus.Selected_app)
+            if selected_count:
                 dept_stats[dept]['selected'] += 1
 
+            # if any(a.status == AppStatus.Selected_app for a in stu.applications):
+            #     dept_stats[dept]['selected'] += 1
+
+
         dept_list = [
-            {'department': k, 'total': v['total'], 'selected': v['selected']}
-            for k, v in dept_stats.items() if v['total'] > 0
+            {'department': k, 
+             'total': v['total'], 
+             'selected': v['selected']
+            }
+            for k, v in dept_stats.items()
+            if v['total'] > 0
         ]
         dept_list.sort(key=lambda x: x['selected'], reverse=True)
 
@@ -666,7 +743,26 @@ def _register_routes(app):
             'dept_stats': dept_list
         })
 
+
+    @app.route('/api/admin/lookups', methods=['GET'])
+    @admin_required
+    def admin_lookups():
+        return ok({
+            'departments': DEPARTMENTS,
+            'degrees': DEGREES,
+            'industries': INDUSTRIES,
+            'job_types': JOB_TYPES
+        })
     
+
+
+
+
+
+
+
+
+
     @app.route('/api/company/dashboard', methods=['GET'])
     @company_required
     def company_dashboard():
@@ -724,7 +820,7 @@ def _register_routes(app):
         co.description = body.get('description', co.description)
         co.location = body.get('location', co.location)
         db.session.commit()
-        return ok(co.to_dict(), 'Profile updated.')
+        return ok(co.to_dict(), 'Profile updated seccessfullly.')
 
 
     @app.route('/api/company/drives', methods=['POST'])
@@ -772,6 +868,9 @@ def _register_routes(app):
         )
         db.session.add(drive)
         db.session.commit()
+
+        cache.delete('admin_dashboard')
+
         return ok(drive.to_dict(), 'Drive submitted for admin approval.', 201)
 
 
@@ -783,7 +882,7 @@ def _register_routes(app):
         co = Company.query.filter_by(user_id=user_id).first()
         drive = PlacementDrive.query.filter_by(id=drive_id, company_id=co.id).first_or_404()
 
-        if drive.status not in (DriveStatus.PENDING, DriveStatus.REJECTED):
+        if drive.status not in (DriveStatus.Pending_status, DriveStatus.Rejected_status):
             return err('Only pending or rejected drives can be edited.')
 
         body = request.get_json() or {}
@@ -793,7 +892,7 @@ def _register_routes(app):
             try:
                 drive.application_deadline = datetime.strptime(deadline_str, '%Y-%m-%d').date()
             except ValueError:
-                return err('Invalid date format.')
+                return err('Invalid date format. please use YYYY-MM-DD.')
 
         drive.job_title = body.get('job_title', drive.job_title).strip()
         drive.job_description = body.get('job_description', drive.job_description)
@@ -806,6 +905,8 @@ def _register_routes(app):
         drive.location  = body.get('location', drive.location)
         drive.status = DriveStatus.Pending_status
         db.session.commit()
+        
+        cache.delete('open_drives')
         return ok(drive.to_dict(), 'Drive updated and re-submitted for approval.')
 
 
@@ -817,7 +918,10 @@ def _register_routes(app):
         drive = PlacementDrive.query.filter_by(id=drive_id, company_id=co.id).first_or_404()
         drive.status = DriveStatus.Closed_status
         db.session.commit()
-        return ok(message=f"'{drive.job_title}' closed.")
+
+        cache.delete('open_drives')
+
+        return ok(message=f"'{drive.job_title}' has been closed.")
 
 
     @app.route('/api/company/drives/<int:drive_id>', methods=['DELETE'])
@@ -871,7 +975,7 @@ def _register_routes(app):
         status = body.get('status', app_obj.status)
 
         if status not in AppStatus.ALL:
-            return err(f"Invalid status.")
+            return err(f"Invalid status. Pleasee choose it from ;- {', '.join(AppStatus.ALL)}..")
 
         app_obj.status = status
         app_obj.notes = body.get('notes', app_obj.notes)
@@ -900,6 +1004,13 @@ def _register_routes(app):
             'industries': INDUSTRIES,
             'app_statuses': AppStatus.ALL
         })
+
+
+
+
+
+
+
 
     @app.route('/api/student/dashboard', methods=['GET'])
     @student_required
@@ -1001,7 +1112,7 @@ def _register_routes(app):
         user_id = get_jwt_identity()
         student = Student.query.filter_by(user_id=user_id).first()
         if not student:
-            return err('Student profile not found.', 404)
+            return err('ohhh.. Student profile not found.', 404)
         return ok(student.to_dict())
 
 
@@ -1012,11 +1123,11 @@ def _register_routes(app):
         student = Student.query.filter_by(user_id=user_id).first()
         body = request.get_json() or {}
 
-        student.full_name = body.get('full_name', student.full_name).strip()
+        student.stu_name = body.get('stu_name', student.stu_name).strip()
         student.phone  = body.get('phone', student.phone)
         student.department = body.get('department', student.department)
         student.degree = body.get('degree', student.degree)
-        student.graduation_year = safe_int(body.get('graduation_year')) or student.graduation_year
+        student.grad_year = safe_int(body.get('graduation_year')) or student.grad_year
         student.cgpa  = safe_float(body.get('cgpa')) or student.cgpa
         student.skills = body.get('skills', student.skills)
         student.bio = body.get('bio', student.bio)
@@ -1033,11 +1144,12 @@ def _register_routes(app):
 
         if 'resume' not in request.files:
             return err('No file provided.')
+        
         file = request.files['resume']
         if not file or not file.filename:
             return err('No file selected.')
-        # if not allowed_file(file.filename):
-        #     return err('Only PDF files are allowed.')
+        if not allowed_file(file.filename):
+            return err('Only PDF files are allowed.')
 
         filename = secure_filename(
             student.email.replace('@', '_').replace('.', '_') + '_resume.pdf'
@@ -1045,7 +1157,7 @@ def _register_routes(app):
         file.save(os.path.join(Config.UPLOAD_FOLDER, filename))
         student.resume_filename = filename
         db.session.commit()
-        return ok({'resume_filename': filename}, 'Resume uploaded.')
+        return ok({'resume_filename': filename}, 'Resume uploaded sucesssfully.')
     
     @app.route('/api/student/applications', methods=['GET'])
     @student_required
