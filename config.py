@@ -21,4 +21,20 @@ class Config:
     JWT_HEADER_NAME = 'Authorization'
     JWT_HEADER_TYPE = 'Bearer'
 
+    CELERY_BROKER_URL    = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+    CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 
+    
+    MAIL_SERVER = os.environ.get('MAIL_SERVER', 'localhost')
+    MAIL_PORT = int(os.environ.get('MAIL_PORT', 1025))
+    MAIL_USE_TLS = os.environ.get('MAIL_USE_TLS', 'False').lower() == 'true'
+    MAIL_USERNAME = os.environ.get('MAIL_USERNAME', '')
+    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', '')
+    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER', 'noreply@placeiitm.ac.in')
+    ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'siddharth@placeiitm.ac.in')
+
+   
+    UPLOAD_FOLDER = os.path.join(BASE_DIR, 'instance', 'resumes')
+    EXPORT_FOLDER = os.path.join(BASE_DIR, 'instance', 'exports')
+    MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5 MB
+    ALLOWED_EXTENSIONS = {'pdf'}

@@ -9,7 +9,7 @@ from sqlalchemy import or_
 
 
 from config import Config
-from extensions import db, jwt, cors
+from extensions import db, jwt, cors, celery, mail
 
 from models import (db, User, Student, Company, PlacementDrive, Application, ExportJob,
                     Role, CompanyStatus, DriveStatus, AppStatus, ExportStatus,
@@ -32,8 +32,34 @@ def create_app():
 
     db.init_app(app)
     jwt.init_app(app)
+    mail.init_app(app)
     cors.init_app(app, resources={r"/api/*": {"origins": "*"}})
 
+    celery.conf.update(
+        broker_url=app.config['CELERY_BROKER_URL'],
+        result_backend=app.config['CELERY_RESULT_BACKEND'],
+        task_serializer='json',
+        result_serializer='json',
+        accept_content=['json'],
+        timezone='Asia/Kolkata',
+        enable_utc=True,
+        beat_schedule={
+            'daily-deadline-reminder': {
+                'task': 'tasks.send_deadline_reminders',
+                'schedule': 86400.0,  # every 24 hours
+            },
+            'monthly-activity-report': {
+                'task': 'tasks.send_monthly_report',
+                'schedule': 2592000.0,  # every 30 days
+            },
+        }
+    )
+
+    class ContextTask(celery.Task):
+        def __call__(self, *args, **kwargs):
+            with app.app_context():
+                return self.run(*args, **kwargs)
+    celery.Task = ContextTask
 
     with app.app_context():
         os.makedirs(os.path.join(app.root_path, 'instance'), exist_ok=True)
@@ -1051,6 +1077,37 @@ def _register_routes(app):
         ).order_by(Application.updated_at.desc()).all()
 
         return ok([a.to_dict() for a in history])
+    
+
+    @app.route('/api/student/export', methods=["POST"])
+    @student_required
+    def student_trigger_export():
+        user_id = get_jwt_identity()
+        student = Student.query.filter_by(user_id=user_id).first()
+
+        job = ExportJob(student_id=student.id)
+        db.session.add(job)
+        db.session.commit()
+
+        from tasks import export_csv_task
+        task = export_csv_task.delay(job.id)
+
+        job.celery_task_id = task.id
+        db.session.commit()
+
+        return ok({'job_id': job.id},
+                  "Export startedd..! You will recieve an email when its ready..."
+                  , 202)
+    
+    @app.route('/api/student/export/<int:job_id>', methods=["GET"])
+    @student_required
+    def student_export_status(job_id):
+        user_id = get_jwt_identity()
+        student = Student.query.filter_by(user_id=user_id).first()
+
+        job = ExportJob.query.filter_by(id=job_id, student_id=student.id).first_or_404()
+
+        return ok(job.to_dict())
 
 
 app = create_app()
