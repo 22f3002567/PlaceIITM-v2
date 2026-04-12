@@ -2,20 +2,23 @@
 from flask import Flask, jsonify, request, render_template, redirect, url_for, send_from_directory
 
 import os
-import csv 
+import csv, io as _io
+import re
 from datetime import date, datetime
 from functools import wraps
+from flask import abort
 
 from werkzeug.security import generate_password_hash 
-
+from werkzeug.utils import secure_filename
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
 from sqlalchemy import or_
-
+from celery.schedules import crontab
+from sqlalchemy.exc import IntegrityError
 
 from config import Config
 from extensions import db, jwt, cors, celery, mail, cache
 
-from models import (db, User, Student, Company, PlacementDrive, Application, ExportJob,
+from models import (User, Student, Company, PlacementDrive, Application, ExportJob,
                     Role, CompanyStatus, DriveStatus, AppStatus, ExportStatus,
                     DEPARTMENTS, DEGREES, INDUSTRIES, JOB_TYPES
                     )
@@ -50,11 +53,13 @@ def create_app():
         beat_schedule={
             'daily-deadline-reminder': {
                 'task': 'tasks.send_deadline_reminders',
-                'schedule': 86400.0,  # every 24 hours
+                # 'schedule': 86400.0,  # every 24 hours
+                'schedule': crontab(hour=8, minute=0),   # 8:00 AM IST every day
             },
             'monthly-activity-report': {
                 'task': 'tasks.send_monthly_report',
-                'schedule': 2592000.0,  # every 30 days
+                # 'schedule': 2592000.0,  # every 30 days
+                'schedule': crontab(day_of_month=1, hour=9, minute=0),  # 9 AM on 1st of month
             },
         }
     )
@@ -92,6 +97,8 @@ def _seed_admin(app):
         print("\n Admin account already exists. Skipping seeding. \n")
 
 
+# helper functions
+
 def ok(data=None, message='', status=200):
     response = {
         'success': True,
@@ -125,11 +132,48 @@ def safe_int(value):
         return None
 
 
+#Passward Validators 
+def validate_password(passwd):
+    #Returns error string or None if valid.
+    if len(passwd) < 8:
+        return 'Password must be at least 8 characters.'
+    if not re.search(r'[A-Z]', passwd):
+        return 'Password must contain at least one uppercase letter.'
+    if not re.search(r'[a-z]', passwd):
+        return 'Password must contain at least one lowercase letter.'
+    if not re.search(r'\d', passwd):
+        return 'Password must contain at least one digit.'
+    if not re.search(r'[!@#$%^&*()\-_=+\[\]{};:\'",.<>?/\\|`~]', passwd):
+        return 'Password must contain at least one special character.'
+    return None
+
+
+#Targeted cache invalidation (pahele  was cache.clear() everywhere)
+
+def _invalidate_drives_cache():
+    # Call this whenever a drive is approved, rejected, or closed.
+    try:
+        cache.delete('open_drives')
+    except Exception:
+        pass
+
+def _invalidate_dashboard_cache():
+    # Call this whenever counts change (approvals, new users, etc.).
+    try:
+        cache.delete('admin_dashboard')
+        cache.delete('admin_stats')
+    except Exception:
+        pass
+
+
+
+# Role decorators
+
 def admin_required(f):
     @wraps(f)
     @jwt_required()
     def decorated(*args, **kwargs):
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity()) # converted to int 
         user = User.query.get(user_id)
         if not user or not user.is_admin():
             return err("Heyyy pleasee, Admin access required", 403)
@@ -145,7 +189,7 @@ def company_required(f):
     @wraps(f)
     @jwt_required()
     def decorated(*args, **kwargs):
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         if not user or not user.is_company():
             return err("Sirrr, Company access required", 403)
@@ -159,7 +203,7 @@ def student_required(f):
     @wraps(f)
     @jwt_required()
     def decorated(*args, **kwargs):
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         if not user or not user.is_student():
             return err("Heyyy dear, Student access required", 403)
@@ -182,17 +226,22 @@ def _register_routes(app):
     
 
     @app.route('/api/resumes/<path:filename>')
-    @jwt_required()
+    # @jwt_required()
     def serve_resume(filename):
+        filename = secure_filename(filename)
+        file_path = os.path.join(Config.UPLOAD_FOLDER, filename)
+
+        if not os.path.exists(file_path):
+            abort(404)
         return send_from_directory(Config.UPLOAD_FOLDER, filename)
 
     @app.route('/api/exports/<path:filename>')
-    @jwt_required()
+    #@jwt_required()
     def serve_export(filename):
         return send_from_directory(Config.EXPORT_FOLDER, filename)
 
 
-
+    # Authentications 
 
 
     @app.route('/api/auth/login', methods=['POST'])
@@ -262,7 +311,7 @@ def _register_routes(app):
     @app.route('/api/auth/me', methods=['GET'])
     @jwt_required()
     def me():
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         if not user:
             return err("User not found", 404)
@@ -291,50 +340,66 @@ def _register_routes(app):
 
             return err('oHH-HOO, Username, email, password, full name and roll number are required.')
         
-        if len(passwd) < 6:
-            #print("FAILED AT: passawar length")
-            return err('Password must be at least 6 characters long.')
+        # if len(passwd) < 6:
+        #     #print("FAILED AT: passawar length")
+        #     return err('Password must be at least 6 characters long.')
         
-        if User.query.filter_by(email=email).first():
-            #print("FAILED AT: email")
-            return err('Email already registered.')
+        pw_err = validate_password(passwd)
+        if pw_err:
+            return err(pw_err)
         
-        if User.query.filter_by(username=username).first():
-            #print("FAILED AT: username")
-            return err('Username already taken.')
-        
-        if Student.query.filter_by(roll_no=roll_no).first():
-            #print("FAILED AT: rollno")
-            return err('Ohh, A student with this roll number is already registered.')
-        
-        user = User(
-            username=username,
-            email=email,
-            role=Role.Student_role,
-        )
-        user.set_password(passwd)
-        db.session.add(user)
-        db.session.flush()
 
-        student = Student(
-            user_id=user.id,
-            stu_name=stu_name,
-            email=email,
-            roll_no=roll_no,
-            phone=phone,
-            department=body.get('department', '').strip() or None,
-            degree=body.get('degree', '').strip() or None,
-            grad_year=body.get('graduation_year', '') or None,
-            
-            #cgpa= float(body.get('cgpa', '') or None),
-            cgpa = safe_float(body.get('cgpa')),
-            skills=body.get('skills', '').strip() or None
-        )
-        db.session.add(student)
-        db.session.commit()
+        # if User.query.filter_by(email=email).first():
+        #     #print("FAILED AT: email")
+        #     return err('Email already registered.')
+        
+        # if User.query.filter_by(username=username).first():
+        #     #print("FAILED AT: username")
+        #     return err('Username already taken.')
+        
+        # if Student.query.filter_by(roll_no=roll_no).first():
+        #     #print("FAILED AT: rollno")
+        #     return err('Ohh, A student with this roll number is already registered.')
+        
+        try:
+            user = User(
+                username=username,
+                email=email,
+                role=Role.Student_role,
+            )
+            user.set_password(passwd)
+            db.session.add(user)
+            db.session.flush()
 
-        return ok(message= "Dear Student, Hurrayy your registration successful", status=201)
+            student = Student(
+                user_id=user.id,
+                stu_name=stu_name,
+                email=email,
+                roll_no=roll_no,
+                phone=phone,
+                department=body.get('department', '').strip() or None,
+                degree=body.get('degree', '').strip() or None,
+                #grad_year=body.get('graduation_year', '') or None,
+                grad_year=safe_int(body.get('graduation_year')),
+                
+                #cgpa= float(body.get('cgpa', '') or None),
+                cgpa = safe_float(body.get('cgpa')),
+                skills=body.get('skills', '').strip() or None
+            )
+            db.session.add(student)
+            db.session.commit()
 
+            _invalidate_dashboard_cache()
+
+            return ok(message= "Dear Student, Hurrayy your registration successful", status=201)
+
+        except IntegrityError as e:
+            db.session.rollback()
+            msg = str(e.orig).lower()
+            if 'email' in msg: return err('This email is already registered.')
+            if 'roll_no' in msg: return err('This roll number is already registered.')
+            if 'username'in msg: return err('This username is already taken.')
+            return err('Registration failed. Please try again.')
 
     @app.route('/api/auth/register/company', methods=['POST'])
     def register_company():
@@ -348,41 +413,51 @@ def _register_routes(app):
         if not all([username, email, passwd, company_name]):
             return err('ohh-hoo, Username, email, password and company name are required.')
         
-        if len(passwd) < 6:
-            return err('Password must be at least 6 characters long.')
+        pw_err = validate_password(passwd)
+        if pw_err:
+            return err(pw_err)
+
+        # if len(passwd) < 6:
+        #     return err('Password must be at least 6 characters long.')
         
-        if User.query.filter_by(email=email).first():
-            return err('Email already registered.')
+        # if User.query.filter_by(email=email).first():
+        #     return err('Email already registered.')
         
-        if User.query.filter_by(username=username).first():
-            return err('This Username already taken sir.')
+        # if User.query.filter_by(username=username).first():
+        #     return err('This Username already taken sir.')
         
-        user = User(
-            username=username,
-            email=email,
-            role=Role.Company_role,
-        )
-        user.set_password(passwd)
-        db.session.add(user)
-        db.session.flush()
+        try: 
+            user = User(
+                username=username,
+                email=email,
+                role=Role.Company_role,
+            )
+            user.set_password(passwd)
+            db.session.add(user)
+            db.session.flush()
 
-        company = Company(
-            user_id=user.id,
-            company_name=company_name,
-            industry=body.get('industry', '').strip() or None,
-            hr_name=body.get('hr_name', '').strip() or None,
-            hr_contact=body.get('hr_contact', '').strip() or None,
-            website=body.get('website', '').strip() or None,
-            description=body.get('description', '').strip() or None,
-            location=body.get('location', '').strip() or None
-        )
-        db.session.add(company)
-        db.session.commit()
-
-
-        return ok(message="Company registration successful!! Please wait for admin approval befor posting any drives", status=201)
+            company = Company(
+                user_id=user.id,
+                company_name=company_name,
+                industry=body.get('industry', '').strip() or None,
+                hr_name=body.get('hr_name', '').strip() or None,
+                hr_contact=body.get('hr_contact', '').strip() or None,
+                website=body.get('website', '').strip() or None,
+                description=body.get('description', '').strip() or None,
+                location=body.get('location', '').strip() or None
+            )
+            db.session.add(company)
+            db.session.commit()
 
 
+            return ok(message="Company registration successful!! Please wait for admin approval befor posting any drives", status=201)
+
+        except IntegrityError as e:
+            db.session.rollback()
+            msg = str(e.orig).lower()
+            if 'email' in msg: return err('This email is already registered.')
+            if 'username' in msg: return err('This username is already taken.')
+            return err('Registration failed. Please try again.')
 
 
     @app.route('/api/student/lookups', methods=['GET'])
@@ -396,6 +471,11 @@ def _register_routes(app):
 
 
 
+
+
+
+
+    # Admin 
 
     @app.route('/api/admin/dashboard', methods=['GET'])
     @admin_required
@@ -447,7 +527,7 @@ def _register_routes(app):
             query = query.filter(Company.approval_status == status)
 
 
-        companies = Company.query.order_by(Company.registered_at.desc()).all()
+        companies = query.order_by(Company.registered_at.desc()).all()
 
         return ok([co.to_dict() for co in companies], "Companies fetched successfully")
     
@@ -461,7 +541,9 @@ def _register_routes(app):
         co.approval_status = CompanyStatus.Approved_status
         db.session.commit()
 
-        cache.delete('admin_dashboard')
+        # cache.delete('admin_dashboard')
+        _invalidate_dashboard_cache()
+
 
         return ok(message=f"'{co.company_name}' hass been approved..")
     
@@ -473,7 +555,8 @@ def _register_routes(app):
         co.approval_status = CompanyStatus.Rejected_status
         db.session.commit()
 
-        cache.delete('admin_dashboard')
+        # cache.delete('admin_dashboard')
+        _invalidate_dashboard_cache()
 
         return ok(message=f"'{co.company_name}' has been rejectedd...")
     
@@ -498,7 +581,11 @@ def _register_routes(app):
         name = co.company_name
         db.session.delete(co.user)
         db.session.commit()
-        cache.delete('admin_dashboard')
+        #cache.delete('admin_dashboard')
+        # cache.clear()
+        _invalidate_dashboard_cache()
+        _invalidate_drives_cache()
+
         return ok(message=f"'{name}' and all associated data have been  deleted..")
     
 
@@ -514,7 +601,7 @@ def _register_routes(app):
         co.industry = body.get('industry', co.industry)
         co.hr_name = body.get('hr_name', co.hr_name)
         co.hr_contact = body.get('hr_contact', co.hr_contact)
-        co.website = body.get('website', co.description)
+        co.website = body.get('website', co.website)
         co.description = body.get('description', co.description)
         co.location = body.get('location', co.location)
         db.session.commit()
@@ -526,7 +613,7 @@ def _register_routes(app):
     def admin_get_students():
         search = request.args.get('search', '').strip()
         dept = request.args.get('department', '').strip()
-        grad_yr = request.args.get('graduation_year', '').strip()
+        grad_year = request.args.get('graduation_year', '').strip()
 
         query = Student.query.join(User)
         if search:
@@ -540,10 +627,10 @@ def _register_routes(app):
         if dept:
             query = query.filter(Student.department == dept)
         
-        if grad_yr:
-            query = query.filter(Student.grad_year == safe_int(grad_yr))
+        if grad_year:
+            query = query.filter(Student.grad_year == safe_int(grad_year))
 
-        #students = query.order_by(Student.grad_year == safe_int(grad_yr))
+        #students = query.order_by(Student.grad_year == safe_int(grad_year))
         students = query.order_by(Student.registered_at.desc()).all()
         return ok([s.to_dict() for s in students])
     
@@ -557,7 +644,7 @@ def _register_routes(app):
         stu.phone = body.get('phone', stu.phone)
         stu.department = body.get('department', stu.department)
         stu.degree = body.get('degree', stu.degree)
-        stu.grad_yr = safe_int(body.get('graduation_year')) or stu.graduation_year
+        stu.grad_year = safe_int(body.get('graduation_year')) or stu.grad_year
         stu.cgpa = safe_float(body.get('cgpa')) or stu.cgpa
         stu.skills = body.get('skills', stu.skills)
         stu.roll_no  = body.get('roll_no', stu.roll_no)
@@ -582,7 +669,9 @@ def _register_routes(app):
         name = stu.stu_name
         db.session.delete(stu.user)
         db.session.commit()
-        cache.delete('admin_dashboard')
+        # cache.delete('admin_dashboard')
+        _invalidate_dashboard_cache()
+
         return ok(message=f"'{name}' and all associated data have deleted.")
 
 
@@ -611,8 +700,12 @@ def _register_routes(app):
         drive = PlacementDrive.query.get_or_404(drive_id)
         drive.status = DriveStatus.Approved_status
         db.session.commit()
-        cache.delete('admin_dashboard')
-        cache.delete('open_drives')
+        # cache.delete('admin_dashboard')
+        # cache.delete('open_drives')
+
+        _invalidate_drives_cache()
+        _invalidate_dashboard_cache()
+
         return ok(message=f"Drive '{drive.job_title}' approved. Studentss can apply now")
 
 
@@ -622,7 +715,9 @@ def _register_routes(app):
         drive = PlacementDrive.query.get_or_404(drive_id)
         drive.status = DriveStatus.Rejected_status
         db.session.commit()
-        cache.delete('open_drives')
+        # cache.delete('open_drives')
+        _invalidate_drives_cache()
+    
         return ok(message=f"Drive '{drive.job_title}' has been rejected.")
 
 
@@ -632,7 +727,9 @@ def _register_routes(app):
         drive = PlacementDrive.query.get_or_404(drive_id)
         drive.status = DriveStatus.Closed_status
         db.session.commit()
-        cache.delete('open_drives')
+        # cache.delete('open_drives')
+        _invalidate_drives_cache()
+    
         return ok(message=f"Drive '{drive.job_title}' closed.")
 
 
@@ -667,6 +764,7 @@ def _register_routes(app):
         total_selected = Application.query.filter_by(status=AppStatus.Selected_app).count()
         total_rejected = Application.query.filter_by(status=AppStatus.Rejected_app).count()
         total_shortlisted = Application.query.filter_by(status=AppStatus.Shortlisted_app).count()
+        total_interview   = Application.query.filter_by(status=AppStatus.Interview_app).count()
 
         placement_rate = round((total_selected / total_apps * 100), 1) if total_apps else 0
 
@@ -731,6 +829,7 @@ def _register_routes(app):
                 'total_selected': total_selected,
                 'total_rejected': total_rejected,
                 'total_shortlisted': total_shortlisted,
+                'total_interview': total_interview,
                 'placement_rate': placement_rate
             },
             'drives_by_status': {
@@ -766,7 +865,7 @@ def _register_routes(app):
     @app.route('/api/company/dashboard', methods=['GET'])
     @company_required
     def company_dashboard():
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         co = Company.query.filter_by(user_id=user_id).first()
         if not co:
             return err('Company profile not found.', 404)
@@ -796,7 +895,7 @@ def _register_routes(app):
     @app.route('/api/company/profile', methods=['GET'])
     @company_required
     def company_get_profile():
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         co = Company.query.filter_by(user_id=user_id).first()
         if not co:
             return err('Company profile not found.', 404)
@@ -806,7 +905,7 @@ def _register_routes(app):
     @app.route('/api/company/profile', methods=['PUT'])
     @company_required
     def company_update_profile():
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         co = Company.query.filter_by(user_id=user_id).first()
         if not co:
             return err('Company profile not found.', 404)
@@ -827,7 +926,7 @@ def _register_routes(app):
     @company_required
     def company_create_drive():
         from datetime import datetime, date
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         co = Company.query.filter_by(user_id=user_id).first()
 
         if not co or not co.is_approved():
@@ -858,7 +957,7 @@ def _register_routes(app):
             job_description = desc,
             job_type = body.get('job_type', '').strip() or None,
             eligible_branches = body.get('eligible_branches', '').strip() or None,
-            eligible_degree = body.get('eligible_degrees', '').strip() or None,
+            eligible_degrees = body.get('eligible_degrees', '').strip() or None,
             min_cgpa = safe_float(body.get('min_cgpa'), 0.0, 10.0) or 0.0,
             required_skills = body.get('required_skills', '').strip() or None,
             salary_range = body.get('salary_range', '').strip() or None,
@@ -869,7 +968,8 @@ def _register_routes(app):
         db.session.add(drive)
         db.session.commit()
 
-        cache.delete('admin_dashboard')
+        # cache.delete('admin_dashboard')
+        _invalidate_dashboard_cache()
 
         return ok(drive.to_dict(), 'Drive submitted for admin approval.', 201)
 
@@ -878,7 +978,7 @@ def _register_routes(app):
     @company_required
     def company_edit_drive(drive_id):
         from datetime import datetime
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         co = Company.query.filter_by(user_id=user_id).first()
         drive = PlacementDrive.query.filter_by(id=drive_id, company_id=co.id).first_or_404()
 
@@ -890,7 +990,12 @@ def _register_routes(app):
 
         if deadline_str:
             try:
-                drive.application_deadline = datetime.strptime(deadline_str, '%Y-%m-%d').date()
+                #drive.application_deadline = datetime.strptime(deadline_str, '%Y-%m-%d').date()
+                new_deadline = datetime.strptime(deadline_str, '%Y-%m-%d').date()
+                if new_deadline < date.today():
+                    return err('Deadline cannot be in the past.')
+                drive.application_deadline = new_deadline
+
             except ValueError:
                 return err('Invalid date format. please use YYYY-MM-DD.')
 
@@ -906,20 +1011,22 @@ def _register_routes(app):
         drive.status = DriveStatus.Pending_status
         db.session.commit()
         
-        cache.delete('open_drives')
+        # cache.delete('open_drives')
+        _invalidate_drives_cache()
         return ok(drive.to_dict(), 'Drive updated and re-submitted for approval.')
 
 
     @app.route('/api/company/drives/<int:drive_id>/close', methods=['POST'])
     @company_required
     def company_close_drive(drive_id):
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         co  = Company.query.filter_by(user_id=user_id).first()
         drive = PlacementDrive.query.filter_by(id=drive_id, company_id=co.id).first_or_404()
         drive.status = DriveStatus.Closed_status
         db.session.commit()
 
-        cache.delete('open_drives')
+        # cache.delete('open_drives')
+        _invalidate_drives_cache()
 
         return ok(message=f"'{drive.job_title}' has been closed.")
 
@@ -927,7 +1034,7 @@ def _register_routes(app):
     @app.route('/api/company/drives/<int:drive_id>', methods=['DELETE'])
     @company_required
     def company_delete_drive(drive_id):
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         co = Company.query.filter_by(user_id=user_id).first()
         drive = PlacementDrive.query.filter_by(id=drive_id, company_id=co.id).first_or_404()
 
@@ -943,7 +1050,7 @@ def _register_routes(app):
     @app.route('/api/company/drives/<int:drive_id>/applications', methods=['GET'])
     @company_required
     def company_drive_applications(drive_id):
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         co = Company.query.filter_by(user_id=user_id).first()
         drive = PlacementDrive.query.filter_by(id=drive_id, company_id=co.id).first_or_404()
         status = request.args.get('status', '').strip()
@@ -964,7 +1071,7 @@ def _register_routes(app):
     @company_required
     def company_update_application(app_id):
         from datetime import datetime
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         co = Company.query.filter_by(user_id=user_id).first()
         app_obj = Application.query.get_or_404(app_id)
 
@@ -980,7 +1087,7 @@ def _register_routes(app):
         app_obj.status = status
         app_obj.notes = body.get('notes', app_obj.notes)
 
-        interview_date_str = body.get('interview_date', '').strip()
+        interview_date_str = (body.get('interview_date') or '').strip()
         if interview_date_str:
             try:
                 app_obj.interview_date = datetime.strptime(interview_date_str, '%Y-%m-%dT%H:%M')
@@ -1015,7 +1122,7 @@ def _register_routes(app):
     @app.route('/api/student/dashboard', methods=['GET'])
     @student_required
     def student_dashboard():
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         student = Student.query.filter_by(user_id=user_id).first()
         if not student:
             return err('Student profile not found.', 404)
@@ -1059,9 +1166,18 @@ def _register_routes(app):
 
     @app.route('/api/student/drives', methods=['GET'])
     @student_required
+    @cache.cached(timeout=60, key_prefix='open_drives')
     def student_browse_drives():
         today = date.today()
         search = request.args.get('search', '').strip()
+
+        eligible_only = request.args.get('eligible_only', '').strip()
+
+        # Only use cache when no filters are applied
+        if not search and not eligible_only:
+            cached = cache.get('open_drives')
+            if cached:
+                return ok(cached)
 
         query = PlacementDrive.query.join(Company).filter(
             PlacementDrive.status == DriveStatus.Approved_status,
@@ -1076,12 +1192,26 @@ def _register_routes(app):
             ))
 
         drives = query.order_by(PlacementDrive.application_deadline.asc()).all()
+        
+        # Optional eligibility filter (optional from here to )
+        if eligible_only == 'true':
+            user_id = int(get_jwt_identity())
+            student = Student.query.filter_by(user_id=user_id).first()
+            if student:
+                drives = [d for d in drives if d.student_is_eligible(student)[0]]
+
+        result = [d.to_dict() for d in drives]
+
+        # Cache only the unfiltered full list
+        if not search and not eligible_only:
+            cache.set('open_drives', result, timeout=60)  #(--here)
+        
         return ok([d.to_dict() for d in drives])
     
     @app.route('/api/student/drives/<int:drive_id>/apply', methods=['POST'])
     @student_required
     def student_apply(drive_id):
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         student = Student.query.filter_by(user_id=user_id).first()
         drive = PlacementDrive.query.get_or_404(drive_id)
 
@@ -1098,18 +1228,23 @@ def _register_routes(app):
         if not eligible:
             return err(f'Opps.. You are not eligible for this drive. {reason}')
 
-        application = Application(student_id=student.id, drive_id=drive_id)
-        db.session.add(application)
-        db.session.commit()
-        return ok(application.to_dict(),
-                  f'Successfully applied to {drive.job_title} at {drive.company.company_name}!',
-                  201)
+        try:
+            application = Application(student_id=student.id, drive_id=drive_id)
+            db.session.add(application)
+            db.session.commit()
+            _invalidate_dashboard_cache()
+            return ok(application.to_dict(),
+                      f'Successfully applied to {drive.job_title} at {drive.company.company_name}!',
+                      201)
+        except IntegrityError:
+            db.session.rollback()
+            return err('You have already applied to this drive.')
 
 
     @app.route('/api/student/profile', methods=['GET'])
     @student_required
     def student_get_profile():
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         student = Student.query.filter_by(user_id=user_id).first()
         if not student:
             return err('ohhh.. Student profile not found.', 404)
@@ -1119,7 +1254,7 @@ def _register_routes(app):
     @app.route('/api/student/profile', methods=['PUT'])
     @student_required
     def student_update_profile():
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         student = Student.query.filter_by(user_id=user_id).first()
         body = request.get_json() or {}
 
@@ -1139,7 +1274,7 @@ def _register_routes(app):
     @student_required
     def student_upload_resume():
         from werkzeug.utils import secure_filename
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         student = Student.query.filter_by(user_id=user_id).first()
 
         if 'resume' not in request.files:
@@ -1162,7 +1297,7 @@ def _register_routes(app):
     @app.route('/api/student/applications', methods=['GET'])
     @student_required
     def student_get_applications():
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         student = Student.query.filter_by(user_id=user_id).first()
         status = request.args.get('status', '').strip()
 
@@ -1180,7 +1315,7 @@ def _register_routes(app):
     @app.route('/api/student/history', methods=['GET'])
     @student_required
     def student_history():
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         student = Student.query.filter_by(user_id=user_id).first()
 
         history = Application.query.filter(
@@ -1191,30 +1326,120 @@ def _register_routes(app):
         return ok([a.to_dict() for a in history])
     
 
-    @app.route('/api/student/export', methods=["POST"])
+    # @app.route('/api/student/export', methods=["POST"])
+    # @student_required
+    # def student_trigger_export():
+    #     user_id = int(get_jwt_identity())
+    #     student = Student.query.filter_by(user_id=user_id).first()
+
+    #     job = ExportJob(student_id=student.id)
+    #     db.session.add(job)
+    #     db.session.commit()
+
+        
+    #     from tasks import export_csv_task
+    #     task = export_csv_task.delay(job.id)
+
+    #     job.celery_task_id = task.id
+    #     db.session.commit()
+
+    #     return ok({'job_id': job.id},
+    #             "Export startedd..! You will recieve an email when its ready..."
+    #             , 202)
+        
+    @app.route('/api/student/export', methods=['POST'])
     @student_required
     def student_trigger_export():
-        user_id = get_jwt_identity()
+        import csv, io as _io
+
+        user_id = int(get_jwt_identity())
         student = Student.query.filter_by(user_id=user_id).first()
 
+        # Create the export job record
         job = ExportJob(student_id=student.id)
         db.session.add(job)
         db.session.commit()
 
-        from tasks import export_csv_task
-        task = export_csv_task.delay(job.id)
+        # Try Celery first
+        try:
+            from tasks import export_csv_task
+            task = export_csv_task.delay(job.id)
 
-        job.celery_task_id = task.id
-        db.session.commit()
+            job.celery_task_id = task.id
+            db.session.commit()
 
-        return ok({'job_id': job.id},
-                  "Export startedd..! You will recieve an email when its ready..."
-                  , 202)
-    
+            return ok({'job_id': job.id, 'mode': 'async'},
+                    'Export started! Check back in a few seconds or watch your email.', 202)
+
+        # Fallback (YOUR ADDITION)
+        except Exception as celery_err:
+            print(f"Celery unavailable ({celery_err}). Generating CSV synchronously.")
+
+            try:
+                apps = Application.query.filter_by(student_id=student.id)\
+                    .order_by(Application.applied_at.desc()).all()
+
+                output = _io.StringIO()
+                writer = csv.writer(output)
+
+                writer.writerow([
+                    'Application ID','Student ID','Student Name','Roll No',
+                    'Company Name','Drive Title','Job Type','Salary Range',
+                    'Application Status','Applied On','Last Updated',
+                    'Interview Date','Interview Mode','Notes'
+                ])
+
+                for app in apps:
+                    writer.writerow([
+                        app.id, student.id, student.stu_name, student.roll_no or '',
+                        app.drive.company.company_name, app.drive.job_title,
+                        app.drive.job_type or '', app.drive.salary_range or '',
+                        app.status,
+                        app.applied_at.strftime('%Y-%m-%d %H:%M'),
+                        app.updated_at.strftime('%Y-%m-%d %H:%M'),
+                        app.interview_date.strftime('%Y-%m-%d %H:%M') if app.interview_date else '',
+                        app.interview_mode or '', app.notes or ''
+                    ])
+
+                csv_data = output.getvalue()
+
+                # Save file
+                os.makedirs(Config.EXPORT_FOLDER, exist_ok=True)
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f"{student.roll_no or student.id}_applications_{timestamp}.csv"
+                filepath = os.path.join(Config.EXPORT_FOLDER, filename)
+
+                with open(filepath, 'w', newline='', encoding='utf-8') as f:
+                    f.write(csv_data)
+
+                # Update job
+                job.status = ExportStatus.Done
+                job.filename = filename
+                job.file_path = filepath
+                job.completed_at = datetime.utcnow()
+                db.session.commit()
+
+                return ok({
+                    'job_id': job.id,
+                    'mode': 'sync',
+                    'filename': filename,
+                    'download_url': f'/api/exports/{filename}',
+                    'total_rows': len(apps),
+                    'csv_data': csv_data
+                }, f'Export ready! {len(apps)} application(s) exported.', 200)
+
+            except Exception as sync_err:
+                job.status = ExportStatus.Failed
+                db.session.commit()
+                return err(f'Export failed: {str(sync_err)}', 500)
+
+
+
+
     @app.route('/api/student/export/<int:job_id>', methods=["GET"])
     @student_required
     def student_export_status(job_id):
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         student = Student.query.filter_by(user_id=user_id).first()
 
         job = ExportJob.query.filter_by(id=job_id, student_id=student.id).first_or_404()

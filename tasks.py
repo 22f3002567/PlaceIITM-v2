@@ -16,17 +16,20 @@ from models import (
 def send_deadline_reminders(self):
 
     today = date.today()
-    day_1 = today + timedelta(days=1)
-    day_3 = today + timedelta(days=3)
+    # day_1 = today + timedelta(days=1)
+    # day_3 = today + timedelta(days=3)
+    soon = today + timedelta(days=3) # day_1 and day_3 were getting remainder not day 2, so now all from day 1 to day 3 will get remainder
 
     # Drives closing tomorrow or in 3 days
     upcoming = PlacementDrive.query.filter(
         PlacementDrive.status == DriveStatus.Approved_status,
-        PlacementDrive.application_deadline.in_([day_1, day_3])
+        # PlacementDrive.application_deadline.in_([day_1, day_3])
+        PlacementDrive.application_deadline >= today,
+        PlacementDrive.application_deadline <= soon
     ).all()
 
     if not upcoming:
-        print("There is know No upcoming deadlines to remind about today.")
+        print("No upcoming deadlines in the next 3 days. No reminders sent.")
         return {'reminded': 0}
 
     students = Student.query.join(Student.user).filter_by(is_active=True).all()
@@ -42,7 +45,10 @@ def send_deadline_reminders(self):
 
             try:
                 msg = Message(
-                    subject=f"⏰ Reminder: {drive.job_title} at {drive.company.company_name} closes in {days_left} day(s)!",
+                    subject=(
+                        f"⏰ Reminder: {drive.job_title} at "
+                        f"{drive.company.company_name} closes in {days_left} day(s)!"
+                      ),
                     recipients=[student.email],
                     html=_reminder_email_html(student, drive, days_left)
                 )
@@ -51,7 +57,7 @@ def send_deadline_reminders(self):
             except Exception as e:
                 print(f"Failed to send reminder to {student.email}: {e}")
 
-    print(f"Daily reminders sent: {reminded}")
+    print(f"Daily reminders sent:- {reminded}")
     return {'reminded': reminded}
 
 
@@ -96,7 +102,7 @@ def _reminder_email_html(student, drive, days_left):
 @celery.task(name='tasks.send_monthly_report', bind=True)
 def send_monthly_report(self):
     from flask import current_app
-    admin_email = current_app.config.get('ADMIN_EMAIL', 'admin@placeiitm.ac.in')
+    admin_email = current_app.config.get('ADMIN_EMAIL', 'siddharth@placeiitm.ac.in')
 
     today = date.today()
     # First day of current month -> first day of last month
@@ -104,15 +110,20 @@ def send_monthly_report(self):
     first_last_month = (first_this_month - timedelta(days=1)).replace(day=1)
     last_month_name = first_last_month.strftime('%B %Y')
 
-    # Stats for last month
+
+
+    # Stats for last month using datetime range (more reliable than extract())
+    period_start = datetime.combine(first_last_month, datetime.min.time())
+    period_end   = datetime.combine(first_this_month, datetime.min.time())
+
     drives_this_month = PlacementDrive.query.filter(
-        PlacementDrive.created_at >= datetime.combine(first_last_month, datetime.min.time()),
-        PlacementDrive.created_at < datetime.combine(first_this_month, datetime.min.time())
+        PlacementDrive.created_at >= period_start,
+        PlacementDrive.created_at < period_end
     ).all()
 
     apps_this_month = Application.query.filter(
-        Application.applied_at >= datetime.combine(first_last_month, datetime.min.time()),
-        Application.applied_at < datetime.combine(first_this_month, datetime.min.time())
+        Application.applied_at >= period_start,
+        Application.applied_at < period_end
     ).all()
 
     selected = [a for a in apps_this_month if a.status == AppStatus.Selected_app]
@@ -231,7 +242,7 @@ def _monthly_report_html(month_name, total_drives, total_apps,
     </div>
     """
 
-# JOB 3 :- User-Triggered CSV Export
+# JOB 3 :- CSV Export (User-Triggered  Async)
 
 @celery.task(name='tasks.export_csv_task', bind=True)
 def export_csv_task(self, job_id):

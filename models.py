@@ -1,8 +1,9 @@
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, date
 from werkzeug.security import generate_password_hash, check_password_hash
+from extensions import db
 
-db = SQLAlchemy()
+# db = SQLAlchemy()
 
 class Role:
     Admin_role = 'admin'
@@ -196,7 +197,7 @@ class Student(db.Model):
         }
 
     def __repr__(self):
-        return f'<Student {self.full_name} [{self.roll_no}]>'
+        return f'<Student {self.stu_name} [{self.roll_no}]>'
 
 
 class PlacementDrive(db.Model):
@@ -230,22 +231,58 @@ class PlacementDrive(db.Model):
     def days_left(self):
         if not self.application_deadline:
             return None
-        delta = self.application_deadline - date.today()
-        return max(0, delta.days)
+        # delta = self.application_deadline - date.today()
+        # return max(0, delta.days)
+        #fixing here i removing max(0, ) qki negative value show kare ki deadline is past deadline
+        return (self.application_deadline - date.today()).days
+
+
+    # def student_is_eligible(self, student):
+    #     if self.min_cgpa and student.cgpa and student.cgpa < self.min_cgpa:
+    #         return False, f"Minimum CGPA required is {self.min_cgpa}. Yours is {student.cgpa}."
+
+    #     if self.eligible_branches and student.department:
+    #         branches = [b.strip() for b in self.eligible_branches.split(',')]
+    #         if branches and student.department not in branches:
+    #             return False, f"This drive is open to: {self.eligible_branches}."
+
+    #     if self.eligible_degrees and student.degree:
+    #         degrees = [d.strip() for d in self.eligible_degrees.split(',')]
+    #         if degrees and student.degree not in degrees:
+    #             return False, f"This drive is open to: {self.eligible_degrees} students."
+
+    #     return True, "Eligible"
 
     def student_is_eligible(self, student):
-        if self.min_cgpa and student.cgpa and student.cgpa < self.min_cgpa:
-            return False, f"Minimum CGPA required is {self.min_cgpa}. Yours is {student.cgpa}."
+        
+        # Fixing 1:- Useing .strip().lower() comparison to avoid whitespace/case issues.
+        # Fixing 2:- If student has no department/degree set, allow apply but do not
+        #        block- a student with incomplete profile should still be able
+        #        to apply (they may have just registered). Eligibility gates
+        #        are opt-in when the drive specifies them.
+        
+        # CGPA check
+        if self.min_cgpa and self.min_cgpa > 0:
+            if student.cgpa is None:
+                return False, f"Minimum CGPA required is {self.min_cgpa}. Your CGPA is not set."
+            if student.cgpa < self.min_cgpa:
+                return False, f"Minimum CGPA required is {self.min_cgpa}. Your CGPA: {student.cgpa}."
 
-        if self.eligible_branches and student.department:
-            branches = [b.strip() for b in self.eligible_branches.split(',')]
-            if branches and student.department not in branches:
-                return False, f"This drive is open to: {self.eligible_branches}."
+        # Branch / department check
+        if self.eligible_branches:
+            branches = [b.strip().lower() for b in self.eligible_branches.split(',') if b.strip()]
+            if branches and student.department:
+                student_dept = student.department.strip().lower()
+                if student_dept not in branches:
+                    return False, f"This drive is open to: {self.eligible_branches}."
 
-        if self.eligible_degrees and student.degree:
-            degrees = [d.strip() for d in self.eligible_degrees.split(',')]
-            if degrees and student.degree not in degrees:
-                return False, f"This drive is open to: {self.eligible_degrees} students."
+        # Degree check
+        if self.eligible_degrees:
+            degrees = [d.strip().lower() for d in self.eligible_degrees.split(',') if d.strip()]
+            if degrees and student.degree:
+                student_deg = student.degree.strip().lower()
+                if student_deg not in degrees:
+                    return False, f"This drive is open to: {self.eligible_degrees} students."
 
         return True, "Eligible"
 
@@ -307,7 +344,7 @@ class Application(db.Model):
         return {
             'id': self.id,
             'student_id': self.student_id,
-            'student_name': self.student.full_name,
+            'student_name': self.student.stu_name,
             'student_email': self.student.email,
             'roll_no':  self.student.roll_no,
             'cgpa':  self.student.cgpa,

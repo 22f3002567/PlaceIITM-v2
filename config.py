@@ -3,8 +3,25 @@ import os
 from datetime import timedelta
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
+from redis import from_url
 
 load_dotenv()
+
+def _redis_available():
+    #Checking if Redis is reachable. Falls back to SimpleCache if not.
+    try:
+        import redis as redis_lib
+        r = redis_lib.Redis(
+            host='localhost', port=6379,
+            socket_connect_timeout=1, socket_timeout=1
+        )
+        r.ping()
+        return True
+    except Exception:
+        return False
+
+
+_REDIS_UP = _redis_available()
 
 
 class Config:
@@ -15,7 +32,7 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'placeiitm_jwt_secret_v2')
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=30)
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24) #changing here minutes=30 to hours = 24
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)
     JWT_TOKEN_LOCATION = ['headers']
     JWT_HEADER_NAME = 'Authorization'
@@ -23,8 +40,15 @@ class Config:
 
 
     REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
-    CACHE_TYPE = 'RedisCache'
-    CACHE_REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+
+    # Caching , fallback to SimpleCache if Redis is not running
+    if _REDIS_UP:
+        CACHE_TYPE = 'RedisCache'
+        CACHE_REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+    else:
+        CACHE_TYPE      = 'SimpleCache'
+        CACHE_REDIS_URL = None
+
     CACHE_DEFAULT_TIMEOUT = 300  # 5 minutes
 
     CELERY_BROKER_URL    = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')

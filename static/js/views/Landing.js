@@ -179,7 +179,7 @@ window.LoginPage = {
 
             <div class="alert alert-info mt-3 small mb-0">
                 <i class="bi bi-info-circle me-1"></i>
-                <strong>Demo admin:</strong> siddharth@placeiitm.ac.in / Siddharth@PlaceIITM2026
+                <strong>Demo admin:</strong> siddharth@placeiitm.ac.in / Siddharth@300
             </div>
         </div>
     </div>

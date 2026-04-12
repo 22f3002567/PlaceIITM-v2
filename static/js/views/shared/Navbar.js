@@ -90,7 +90,7 @@ window.NotFoundPage = {
         <div style="font-size:5rem; opacity:0.12;" class="mb-3">
             <i class="bi bi-compass"></i>
         </div>
-        <h1 class="fw-700 mb-2" style="font-size:2rem;">404 — Page Not Found</h1>
+        <h1 class="fw-700 mb-2" style="font-size:2rem;">404 -::- Page Not Found</h1>
         <p class="text-muted mb-4">The page you are looking for doesn't exist or has moved.</p>
         <router-link to="/" class="btn btn-primary">
             <i class="bi bi-house me-1"></i>Go Home
